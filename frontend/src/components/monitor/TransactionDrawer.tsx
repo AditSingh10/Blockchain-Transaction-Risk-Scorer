@@ -1,5 +1,6 @@
 import React from 'react';
 import { Transaction } from '../../types';
+import { SubgraphViewer } from './SubgraphViewer';
 
 interface Props {
   transaction: Transaction | null;
@@ -65,14 +66,16 @@ export const TransactionDrawer: React.FC<Props> = ({ transaction, onClose }) => 
             <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Local Neighborhood Graph</div>
             <div className="text-xs text-slate-400">2-Hop Subgraph</div>
           </div>
-          <div className="h-48 bg-slate-50 border border-slate-200 rounded flex items-center justify-center text-slate-400 text-sm shadow-inner">
-            [ GNN Subgraph Visualization ]
-          </div>
+          <SubgraphViewer txId={transaction.tx_id} height={260} />
         </div>
 
         {/* Features Placeholder */}
         <div>
-          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">Top Feature Importance</div>
+          <div className="flex items-baseline space-x-2 mb-1">
+            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider">Top Feature Importance</div>
+            <div className="text-xs text-slate-400">(illustrative)</div>
+          </div>
+          <div className="text-xs text-slate-400 mb-3">Representative feature weights — not SHAP values</div>
           <div className="space-y-4">
              <div>
                <div className="flex items-center justify-between text-sm mb-1.5">

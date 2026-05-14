@@ -1,12 +1,104 @@
-# crypto_fraud_detection
+# Crypto Fraud Detection
 
-Goal: Train a GNN on the Elliptic Bitcoin transaction graph and deploy it in a simulated real-time system that ingests streaming transactions and flags illicit activity using a rolling subgraph.
+Real-time Bitcoin transaction fraud detection using a Graph Attention Network (GAT-ResNet) trained on the Elliptic dataset. A streaming pipeline replays the dataset transaction-by-transaction, runs GNN inference on each transaction's 2-hop subgraph, and pushes scored results to a React dashboard over WebSocket.
 
-Nodes and edges
-The graph is made of 203,769 nodes and 234,355 edges. Two percent (4,545) of the nodes are labelled class1 (illicit). Twenty-one percent (42,019) are labelled class2 (licit). The remaining transactions are not labelled with regard to licit versus illicit.
+---
 
-Features
-There are 166 features associated with each node. Due to intellectual property issues, we cannot provide an exact description of all the features in the dataset. There is a time step associated to each node, representing a measure of the time when a transaction was broadcasted to the Bitcoin network. The time steps, running from 1 to 49, are evenly spaced with an interval of about two weeks. Each time step contains a single connected component of transactions that appeared on the blockchain within less than three hours between each other; there are no edges connecting the different time steps.
+## Prerequisites
 
-The first 94 features represent local information about the transaction – including the time step described above, number of inputs/outputs, transaction fee, output volume and aggregated figures such as average BTC received (spent) by the inputs/outputs and average number of incoming (outgoing) transactions associated with the inputs/outputs. The remaining 72 features are aggregated features, obtained using transaction information one-hop backward/forward from the center node - giving the maximum, minimum, standard deviation and correlation coefficients of the neighbour transactions for the same information data (number of inputs/outputs, transaction fee, etc.).
+| Requirement | Version |
+|---|---|
+| Python | 3.11+ |
+| Node.js | 18+ |
+| Elliptic dataset | [kaggle.com/ellipticco/elliptic-data-set](https://www.kaggle.com/datasets/ellipticco/elliptic-data-set) |
 
+The dataset directory must contain:
+```
+elliptic_bitcoin_dataset/
+  elliptic_txs_features.csv
+  elliptic_txs_edgelist.csv
+  elliptic_txs_classes.csv
+```
+
+---
+
+## Setup
+
+**1. Install Python dependencies** (run from project root):
+```bash
+pip install -r requirements.txt
+```
+
+**2. Fit and save the feature scaler** (one-time, skip if `models/scaler.pkl` already exists):
+```bash
+ELLIPTIC_DATA_DIR=/path/to/data python prepare_model.py
+```
+This fits a `StandardScaler` on training timesteps 1–34 and saves it to `models/scaler.pkl`. The GNN checkpoint (`models/gat_resnet_elliptic.pt`) is already committed.
+
+---
+
+## Running
+
+**Terminal 1 — backend:**
+```bash
+ELLIPTIC_DATA_DIR=/path/to/data uvicorn api.main:app --reload
+```
+API available at `http://localhost:8000`. Startup loads the model and dataset (~5 seconds).
+
+**Terminal 2 — frontend:**
+```bash
+cd frontend
+npm install        # first time only
+npm start
+```
+Dashboard available at `http://localhost:3000`.
+
+---
+
+## Dashboard pages
+
+| Page | What it shows |
+|---|---|
+| **Live Monitor** | Streaming transaction table with real-time GNN risk scores. Toggle between table and force-graph view. Adjust flagging threshold and stream speed with sliders. Click any row to inspect its 2-hop subgraph. |
+| **Alerts** | All transactions flagged above the threshold, tiered by severity (Critical / High / Medium / Low). |
+| **Entity Explorer** | Search any transaction ID to see its risk score, neighbors, and interactive 2-hop subgraph pulled from the backend. |
+| **Model Performance** | Precision-Recall curve, threshold sensitivity chart, and confusion matrix from the offline test evaluation (timesteps 42–49). |
+| **System Metrics** | Live inference latency and throughput charts, plus running totals for processed and flagged transactions. |
+
+---
+
+## Model
+
+**Architecture:** GATResNet — 3-layer Graph Attention Network with residual connections and an input skip connection.
+
+**Dataset:** Elliptic Bitcoin Dataset — 203,769 nodes, 234,355 edges, 166 features per node, 49 time steps.
+
+**Training split:** train 1–34 · val 35–41 · test 42–49 (temporal, no leakage)
+
+**Test performance at threshold 0.90:**
+
+| Metric | Value |
+|---|---|
+| AUC-PR (illicit class) | 0.874 |
+| MCC | 0.609 |
+| Illicit Precision | 68% |
+| Illicit Recall | 60% |
+| Illicit F1 | 0.639 |
+| Weighted F1 | 0.942 |
+
+---
+
+## API endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /health` | Liveness check — confirms model is loaded |
+| `GET /entity/{tx_id}` | Risk score + neighbor list for a transaction |
+| `GET /subgraph/{tx_id}` | 2-hop subgraph with per-node risk scores |
+| `WS /ws` | Streaming scored transactions (20 tx/s default) |
+
+The WebSocket accepts control messages:
+```json
+{ "type": "set_threshold", "value": 0.85 }
+{ "type": "set_speed",     "interval": 0.1 }
+```
