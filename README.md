@@ -1,6 +1,5 @@
 
 
-https://github.com/user-attachments/assets/343f2382-38b1-4bc3-a350-620430f42f7e
 
 
 
@@ -10,7 +9,6 @@ https://github.com/user-attachments/assets/343f2382-38b1-4bc3-a350-620430f42f7e
 
 Real-time Bitcoin transaction fraud detection using a Graph Attention Network (GAT-ResNet) trained on the Elliptic dataset. A streaming pipeline replays the dataset transaction-by-transaction, runs GNN inference on each transaction's 2-hop subgraph, and pushes scored results to a React dashboard over WebSocket.
 
-<img width="1511" height="766" alt="Screenshot 2026-05-15 at 12 32 53 PM" src="https://github.com/user-attachments/assets/075e558f-5cc9-4616-884e-63a60ee6b91e" />
 
 
 
