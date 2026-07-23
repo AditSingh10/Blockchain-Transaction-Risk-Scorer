@@ -1,139 +1,193 @@
-import React, { useState } from 'react';
-import { Transaction } from '../types';
-import { TransactionDrawer } from '../components/monitor/TransactionDrawer';
+import React, { useEffect, useMemo, useState } from 'react';
+import { TransactionInspector } from '../components/monitor/TransactionDrawer';
+import { Icon } from '../components/ui/Icon';
+import {
+  EmptyState,
+  MetricReadout,
+  Panel,
+  PanelHeader,
+  RiskBadge,
+} from '../components/ui/Workbench';
 import { useWebSocketContext } from '../context/WebSocketContext';
+import { ReviewState, Transaction } from '../types';
+import {
+  formatAmount,
+  formatPercent,
+  formatTime,
+  truncateId,
+} from '../utils/format';
 
-function getSeverity(prob: number): { label: string; classes: string } {
-  if (prob >= 0.95) return { label: 'Critical', classes: 'bg-red-100 text-red-800 border-red-300' };
-  if (prob >= 0.90) return { label: 'High',     classes: 'bg-red-50 text-red-700 border-red-200' };
-  if (prob >= 0.75) return { label: 'Medium',   classes: 'bg-amber-50 text-amber-700 border-amber-200' };
-  return                   { label: 'Low',      classes: 'bg-yellow-50 text-yellow-700 border-yellow-200' };
-}
+type SeverityFilter = 'all' | 'critical' | 'high';
+type AlertSortKey = 'time' | 'risk' | 'amount' | 'latency';
 
 export const Alerts: React.FC = () => {
-  const { alerts, clearAlerts } = useWebSocketContext();
+  const { alerts, clearAlerts, threshold } = useWebSocketContext();
   const [selectedTx, setSelectedTx] = useState<Transaction | null>(null);
+  const [severity, setSeverity] = useState<SeverityFilter>('all');
+  const [reviewStates, setReviewStates] = useState<Record<string, ReviewState>>({});
+  const [sortKey, setSortKey] = useState<AlertSortKey>('time');
+  const [sortDescending, setSortDescending] = useState(true);
 
-  const criticalCount = alerts.filter(tx => tx.illicit_probability >= 0.95).length;
-  const highCount     = alerts.filter(tx => tx.illicit_probability >= 0.90 && tx.illicit_probability < 0.95).length;
-  const lastAlert     = alerts[0];
+  useEffect(() => {
+    if (!selectedTx && alerts.length) setSelectedTx(alerts[0]);
+  }, [alerts, selectedTx]);
+
+  const critical = alerts.filter(tx => tx.illicit_probability >= 0.95);
+  const high = alerts.filter(tx =>
+    tx.illicit_probability >= threshold && tx.illicit_probability < 0.95
+  );
+  const filtered = useMemo(() => {
+    const matching = alerts.filter(tx =>
+      severity === 'all'
+      || (severity === 'critical' && tx.illicit_probability >= 0.95)
+      || (severity === 'high' && tx.illicit_probability >= threshold && tx.illicit_probability < 0.95)
+    );
+    return [...matching].sort((a, b) => {
+      const values: Record<AlertSortKey, [number, number]> = {
+        time: [a.timestamp, b.timestamp],
+        risk: [a.illicit_probability, b.illicit_probability],
+        amount: [a.amount, b.amount],
+        latency: [a.inference_latency_ms, b.inference_latency_ms],
+      };
+      const [left, right] = values[sortKey];
+      return (left - right) * (sortDescending ? -1 : 1);
+    });
+  }, [alerts, severity, sortDescending, sortKey, threshold]);
+
+  const updateReview = (txId: string, state: ReviewState) => {
+    setReviewStates(previous => ({ ...previous, [txId]: state }));
+  };
+
+  const setSort = (key: AlertSortKey) => {
+    if (key === sortKey) setSortDescending(value => !value);
+    else {
+      setSortKey(key);
+      setSortDescending(true);
+    }
+  };
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col h-full">
-      {/* Header */}
-      <div className="flex justify-between items-end mb-6 shrink-0">
+    <div className="page">
+      <header className="workbench-heading">
         <div>
-          <div className="flex items-center space-x-3">
-            <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Active Alerts</h1>
-            {alerts.length > 0 && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                {alerts.length}
-              </span>
+          <h1>Alert Queue</h1>
+          <p>Prioritize transactions whose risk score crossed the active operating threshold.</p>
+        </div>
+        <div className="heading-actions">
+          <span className="local-state-note">Review state is local to this browser</span>
+          <button className="button button-subtle" onClick={clearAlerts} disabled={!alerts.length}>
+            Clear local queue
+          </button>
+        </div>
+      </header>
+
+      <div className="metric-rail">
+        <MetricReadout label="Queue total" value={alerts.length} detail="Flagged events" />
+        <MetricReadout label="Critical" value={critical.length} detail="Risk ≥ 95%" tone="critical" />
+        <MetricReadout label="High" value={high.length} detail={`${formatPercent(threshold, 0)}–94.99%`} tone="warning" />
+        <MetricReadout
+          label="Newest alert"
+          value={alerts[0] ? formatTime(alerts[0].timestamp) : '—'}
+          detail={alerts[0] ? truncateId(alerts[0].tx_id, 8, 4) : 'No queued alert'}
+        />
+      </div>
+
+      <div className="review-workspace">
+        <Panel className="queue-panel">
+          <PanelHeader
+            title="Review queue"
+            meta={`${filtered.length} visible`}
+            actions={
+              <div className="segmented-control">
+                {(['all', 'critical', 'high'] as SeverityFilter[]).map(option => (
+                  <button
+                    key={option}
+                    className={severity === option ? 'is-active' : ''}
+                    onClick={() => setSeverity(option)}
+                  >
+                    {option === 'all' ? 'All' : option[0].toUpperCase() + option.slice(1)}
+                  </button>
+                ))}
+              </div>
+            }
+          />
+          <div className="data-table-wrap">
+            <table className="data-table alert-table">
+              <thead>
+                <tr>
+                  <th><button onClick={() => setSort('time')}>Observed <SortMark active={sortKey === 'time'} desc={sortDescending} /></button></th>
+                  <th>Transaction ID</th>
+                  <th className="numeric"><button onClick={() => setSort('risk')}>Risk <SortMark active={sortKey === 'risk'} desc={sortDescending} /></button></th>
+                  <th>Severity</th>
+                  <th className="numeric"><button onClick={() => setSort('amount')}>Amount <SortMark active={sortKey === 'amount'} desc={sortDescending} /></button></th>
+                  <th className="numeric"><button onClick={() => setSort('latency')}>Latency <SortMark active={sortKey === 'latency'} desc={sortDescending} /></button></th>
+                  <th>Queue reason</th>
+                  <th>Review</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((tx, index) => {
+                  const key = `${tx.tx_id}-${index}`;
+                  const reviewState = reviewStates[tx.tx_id] ?? 'Unreviewed';
+                  return (
+                    <tr
+                      key={key}
+                      className={selectedTx?.tx_id === tx.tx_id ? 'is-selected' : ''}
+                      onClick={() => setSelectedTx(tx)}
+                      tabIndex={0}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') setSelectedTx(tx);
+                      }}
+                    >
+                      <td className="mono muted">{formatTime(tx.timestamp)}</td>
+                      <td className="mono" title={tx.tx_id}>{truncateId(tx.tx_id, 10, 6)}</td>
+                      <td className="mono numeric risk-cell">{formatPercent(tx.illicit_probability, 2)}</td>
+                      <td><RiskBadge probability={tx.illicit_probability} threshold={threshold} /></td>
+                      <td className="mono numeric">{formatAmount(tx.amount)}</td>
+                      <td className="mono numeric muted">{tx.inference_latency_ms.toFixed(2)} ms</td>
+                      <td className="queue-reason">
+                        <Icon name="alert" size={13} />
+                        Score ≥ {formatPercent(tx.threshold, 0)}
+                      </td>
+                      <td onClick={event => event.stopPropagation()}>
+                        <select
+                          className={`review-select state-${reviewState.toLowerCase()}`}
+                          value={reviewState}
+                          onChange={event => updateReview(tx.tx_id, event.target.value as ReviewState)}
+                          aria-label={`Review state for transaction ${tx.tx_id}`}
+                        >
+                          <option>Unreviewed</option>
+                          <option>Reviewing</option>
+                          <option>Reviewed</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            {filtered.length === 0 && (
+              <EmptyState
+                icon="alert"
+                title={alerts.length ? 'No alerts in this severity' : 'Alert queue is clear'}
+                detail={alerts.length
+                  ? 'Choose another severity segment to continue review.'
+                  : 'Transactions appear here when their score crosses the active threshold.'}
+              />
             )}
           </div>
-          <p className="text-sm text-slate-500 mt-1">Flagged transactions requiring analyst review</p>
-        </div>
-        {alerts.length > 0 && (
-          <button
-            onClick={clearAlerts}
-            className="text-sm font-medium px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
-          >
-            Clear All
-          </button>
-        )}
-      </div>
+        </Panel>
 
-      {/* Stats strip */}
-      <div className="grid grid-cols-4 gap-4 mb-6 shrink-0">
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Total Flagged</div>
-          <div className="text-2xl font-semibold text-slate-900">{alerts.length}</div>
-        </div>
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Critical (≥95%)</div>
-          <div className="text-2xl font-semibold text-red-700">{criticalCount}</div>
-        </div>
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">High (≥90%)</div>
-          <div className="text-2xl font-semibold text-red-600">{highCount}</div>
-        </div>
-        <div className="bg-white p-4 rounded border border-slate-200 shadow-sm">
-          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Last Alert</div>
-          <div className="text-sm font-medium text-slate-900 mt-1">
-            {lastAlert ? new Date(lastAlert.timestamp).toLocaleTimeString() : '—'}
-          </div>
-        </div>
+        <TransactionInspector
+          transaction={selectedTx}
+          threshold={threshold}
+          onClose={() => setSelectedTx(null)}
+        />
       </div>
-
-      {/* Alerts table */}
-      <div className="bg-white border border-slate-200 rounded flex-1 overflow-hidden flex flex-col shadow-sm">
-        <div className="overflow-auto flex-1">
-          <table className="min-w-full divide-y divide-slate-200 text-sm text-left">
-            <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-              <tr>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs">Time</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs">Tx Hash</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs text-right">Risk Score</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs text-center">Severity</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs text-right">Amount</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs text-right">Latency</th>
-                <th className="px-6 py-3.5 font-semibold text-slate-600 uppercase tracking-wider text-xs" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {alerts.map((tx, i) => {
-                const sev = getSeverity(tx.illicit_probability);
-                return (
-                  <tr key={`${tx.tx_id}-${i}`} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-3 text-slate-500 whitespace-nowrap">
-                      {new Date(tx.timestamp).toLocaleTimeString()}
-                    </td>
-                    <td className="px-6 py-3 font-mono text-slate-600 truncate max-w-[180px]">
-                      {tx.tx_id}
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        <div className="w-16 bg-red-100 rounded-sm h-1.5 overflow-hidden">
-                          <div className="bg-red-500 h-full" style={{ width: `${tx.illicit_probability * 100}%` }} />
-                        </div>
-                        <span className="text-red-700 font-semibold w-12 text-right">
-                          {(tx.illicit_probability * 100).toFixed(1)}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-3 text-center">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${sev.classes}`}>
-                        {sev.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-3 text-right text-slate-900 font-medium">
-                      {tx.amount.toFixed(4)}
-                    </td>
-                    <td className="px-6 py-3 text-right text-slate-400 font-mono text-xs">
-                      {tx.inference_latency_ms}ms
-                    </td>
-                    <td className="px-6 py-3 text-right">
-                      <button
-                        onClick={() => setSelectedTx(tx)}
-                        className="text-xs text-slate-500 hover:text-slate-900 underline underline-offset-2"
-                      >
-                        View
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {alerts.length === 0 && (
-            <div className="p-12 text-center text-slate-500 text-sm">
-              No flagged transactions yet. Alerts appear here when the risk score exceeds the threshold.
-            </div>
-          )}
-        </div>
-      </div>
-
-      <TransactionDrawer transaction={selectedTx} onClose={() => setSelectedTx(null)} />
     </div>
   );
 };
+
+const SortMark: React.FC<{ active: boolean; desc: boolean }> = ({ active, desc }) => (
+  <span className={`sort-mark${active ? ' is-active' : ''}`}>{active ? (desc ? '↓' : '↑') : '↕'}</span>
+);

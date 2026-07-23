@@ -1,41 +1,68 @@
 import React from 'react';
 import { useNavigation } from '../../context/NavigationContext';
+import { useWebSocketContext } from '../../context/WebSocketContext';
 import { NavPage } from '../../types';
+import { Icon, IconName } from '../ui/Icon';
+import { StatusIndicator } from '../ui/Workbench';
 
-const NAV_ITEMS: Array<{ label: string; page: NavPage }> = [
-  { label: 'Live Monitor',      page: 'monitor' },
-  { label: 'Alerts',            page: 'alerts' },
-  { label: 'Entity Explorer',   page: 'entity' },
-  { label: 'Model Performance', page: 'performance' },
-  { label: 'System Metrics',    page: 'metrics' },
+const NAV_ITEMS: Array<{ label: string; page: NavPage; icon: IconName }> = [
+  { label: 'Live Monitor', page: 'monitor', icon: 'activity' },
+  { label: 'Alerts', page: 'alerts', icon: 'alert' },
+  { label: 'Entity Explorer', page: 'entity', icon: 'graph' },
+  { label: 'Model Performance', page: 'performance', icon: 'model' },
+  { label: 'System Metrics', page: 'metrics', icon: 'metrics' },
 ];
 
 export const Sidebar: React.FC = () => {
   const { currentPage, navigate } = useNavigation();
+  const { alerts, connected, demoMode } = useWebSocketContext();
 
   return (
-    <div className="w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shrink-0">
-      <div className="h-14 flex items-center px-4 font-semibold text-white border-b border-slate-800 tracking-tight">
-        Risk Monitor
+    <aside className="sidebar">
+      <div className="product-lockup">
+        <span className="product-mark"><Icon name="target" size={18} /></span>
+        <div className="product-copy">
+          <strong>Risk Monitor</strong>
+          <span>Blockchain intelligence</span>
+        </div>
       </div>
-      <nav className="flex-1 py-4">
-        <ul className="space-y-1">
-          {NAV_ITEMS.map(({ label, page }) => (
-            <li key={page}>
-              <button
-                onClick={() => navigate(page)}
-                className={`w-full text-left block px-4 py-2 text-sm transition-colors ${
-                  currentPage === page
-                    ? 'bg-slate-800 text-white font-medium'
-                    : 'hover:bg-slate-800 hover:text-white'
-                }`}
-              >
-                {label}
-              </button>
-            </li>
-          ))}
-        </ul>
+
+      <nav className="primary-nav" aria-label="Primary navigation">
+        <span className="nav-section-label">Workspace</span>
+        {NAV_ITEMS.map(({ label, page, icon }) => (
+          <button
+            key={page}
+            className={`nav-item${currentPage === page ? ' is-active' : ''}`}
+            onClick={() => navigate(page)}
+            aria-current={currentPage === page ? 'page' : undefined}
+            title={label}
+          >
+            <Icon name={icon} />
+            <span>{label}</span>
+            {page === 'alerts' && alerts.length > 0 && (
+              <span className="nav-count">{alerts.length > 99 ? '99+' : alerts.length}</span>
+            )}
+          </button>
+        ))}
       </nav>
-    </div>
+
+      <div className="sidebar-system">
+        <div className="sidebar-system-row">
+          <Icon name="model" size={14} />
+          <span>GAT-ResNet</span>
+          <code>v1.2.0</code>
+        </div>
+        <div className="sidebar-system-row">
+          <Icon name="database" size={14} />
+          <span>Elliptic</span>
+          <code>165F</code>
+        </div>
+        <StatusIndicator
+          state={connected ? 'healthy' : 'critical'}
+          label={connected ? (demoMode ? 'Demo stream' : 'Pipeline online') : 'Pipeline offline'}
+          compact
+        />
+      </div>
+    </aside>
   );
 };

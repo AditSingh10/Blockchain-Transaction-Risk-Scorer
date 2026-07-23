@@ -10,6 +10,7 @@ export interface Transaction {
 }
 
 export type NavPage = 'monitor' | 'alerts' | 'entity' | 'performance' | 'metrics';
+export type ReviewState = 'Unreviewed' | 'Reviewing' | 'Reviewed';
 
 export interface GraphNode {
   id: string;
@@ -36,4 +37,12 @@ export interface LatencyPoint {
 export interface ThroughputPoint {
   time: number;
   tps: number;
+}
+
+export interface EntityData {
+  tx_id: string;
+  risk_score: number;
+  flagged: boolean;
+  neighbors: string[];
+  cached: boolean;
 }

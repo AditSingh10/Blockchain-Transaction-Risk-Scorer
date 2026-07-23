@@ -11,8 +11,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { MetricReadout, Panel, PanelHeader } from '../components/ui/Workbench';
+import { useWebSocketContext } from '../context/WebSocketContext';
+import { formatPercent } from '../utils/format';
 
-// Approximated from notebook run: AUC-PR=0.874, operating point at threshold=0.90 → P=0.68, R=0.60
 const PR_CURVE_DATA = [
   { recall: 0.00, precision: 1.00 },
   { recall: 0.05, precision: 0.97 },
@@ -30,7 +32,6 @@ const PR_CURVE_DATA = [
   { recall: 1.00, precision: 0.08 },
 ];
 
-// Derived from known metrics at threshold=0.90 and typical GAT behavior
 const THRESHOLD_DATA = [
   { threshold: 0.50, precision: 0.38, recall: 0.87, f1: 0.52 },
   { threshold: 0.60, precision: 0.47, recall: 0.82, f1: 0.59 },
@@ -43,116 +44,134 @@ const THRESHOLD_DATA = [
   { threshold: 0.99, precision: 0.81, recall: 0.31, f1: 0.45 },
 ];
 
-const TICK_STYLE = { fontSize: 10, fill: '#94a3b8' };
-const GRID_STYLE = { strokeDasharray: '3 3', stroke: '#e2e8f0' };
-const TOOLTIP_STYLE = { fontSize: 12, borderColor: '#e2e8f0' };
+const tick = { fontSize: 10, fill: '#788896', fontFamily: 'ui-monospace, monospace' };
+const grid = { strokeDasharray: '2 3', stroke: '#27323c' };
+const tooltip = {
+  fontSize: 12,
+  color: '#d8e0e7',
+  background: '#18212a',
+  border: '1px solid #34414d',
+  borderRadius: 2,
+};
 
 export const ModelPerformance: React.FC = () => {
+  const { threshold } = useWebSocketContext();
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900 tracking-tight">Model Performance</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          GAT-ResNet evaluated on Elliptic dataset, test timesteps 42–49. Training threshold: 0.90.
-        </p>
+    <div className="page">
+      <header className="workbench-heading">
+        <div>
+          <h1>Model Performance</h1>
+          <p>Offline GAT-ResNet evaluation on Elliptic test timesteps 42–49.</p>
+        </div>
+        <div className="evaluation-context">
+          <span>Offline evaluation</span>
+          <code>TEST 42–49</code>
+          <code>DEFAULT THR 0.90</code>
+        </div>
+      </header>
+
+      <div className="metric-rail">
+        <MetricReadout label="AUC–PR" value="0.874" detail="Illicit class" />
+        <MetricReadout label="MCC" value="0.609" detail="Matthews correlation" />
+        <MetricReadout label="Precision" value="68%" detail="Illicit @ 0.90" />
+        <MetricReadout label="Recall" value="60%" detail="Illicit @ 0.90" />
+        <MetricReadout
+          label="Live threshold"
+          value={formatPercent(threshold, 0)}
+          detail={threshold === 0.9 ? 'Matches evaluation point' : 'Differs from offline point'}
+          tone={threshold === 0.9 ? 'healthy' : 'warning'}
+        />
       </div>
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'AUC-PR',              value: '0.874', sub: 'Illicit class' },
-          { label: 'MCC',                 value: '0.609', sub: 'Matthews Corr. Coef.' },
-          { label: 'Illicit Precision',   value: '68%',   sub: 'At threshold 0.90' },
-          { label: 'Illicit Recall',      value: '60%',   sub: 'At threshold 0.90' },
-        ].map(({ label, value, sub }) => (
-          <div key={label} className="bg-white p-5 rounded border border-slate-200 shadow-sm">
-            <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">{label}</div>
-            <div className="text-3xl font-semibold text-slate-900">{value}</div>
-            <div className="text-xs text-slate-400 mt-1">{sub}</div>
+      <div className="evaluation-grid">
+        <Panel className="chart-panel">
+          <PanelHeader title="Precision–recall curve" meta="AUC–PR 0.874" />
+          <div className="chart-body">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={PR_CURVE_DATA} margin={{ top: 18, right: 24, bottom: 22, left: 0 }}>
+                <CartesianGrid {...grid} />
+                <XAxis
+                  dataKey="recall"
+                  tick={tick}
+                  domain={[0, 1]}
+                  label={{ value: 'RECALL', position: 'insideBottom', offset: -13, fontSize: 9, fill: '#788896' }}
+                />
+                <YAxis
+                  tick={tick}
+                  domain={[0, 1]}
+                  label={{ value: 'PRECISION', angle: -90, position: 'insideLeft', offset: 12, fontSize: 9, fill: '#788896' }}
+                />
+                <Tooltip formatter={(value: any) => Number(value).toFixed(3)} contentStyle={tooltip} />
+                <Line type="monotone" dataKey="precision" stroke="#5aa9ed" strokeWidth={2} dot={false} isAnimationActive={false} />
+                <ReferenceDot
+                  x={0.60}
+                  y={0.68}
+                  r={5}
+                  fill="#ef5b64"
+                  stroke="#111820"
+                  strokeWidth={2}
+                  label={{ value: '0.90', position: 'top', fontSize: 9, fill: '#ef8b92' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-        ))}
-      </div>
+          <div className="chart-footnote">Red marker is the documented offline operating point: 68% precision / 60% recall.</div>
+        </Panel>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* PR Curve */}
-        <div className="bg-white p-6 rounded border border-slate-200 shadow-sm h-80 flex flex-col">
-          <h3 className="text-sm font-semibold text-slate-900 mb-1">Precision-Recall Curve</h3>
-          <p className="text-xs text-slate-400 mb-4">AUC-PR = 0.874 · Red dot = operating point (thr=0.90)</p>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={PR_CURVE_DATA} margin={{ top: 4, right: 16, bottom: 20, left: 4 }}>
-              <CartesianGrid {...GRID_STYLE} />
-              <XAxis
-                dataKey="recall" tick={TICK_STYLE} domain={[0, 1]}
-                label={{ value: 'Recall', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#64748b' }}
-              />
-              <YAxis
-                tick={TICK_STYLE} domain={[0, 1]}
-                label={{ value: 'Precision', angle: -90, position: 'insideLeft', offset: 12, fontSize: 11, fill: '#64748b' }}
-              />
-              <Tooltip formatter={(v: any) => (v as number).toFixed(3)} contentStyle={TOOLTIP_STYLE} />
-              <Line type="monotone" dataKey="precision" stroke="#3b82f6" strokeWidth={2} dot={false} name="Precision" />
-              <ReferenceDot x={0.60} y={0.68} r={5} fill="#ef4444" stroke="none"
-                label={{ value: 'thr=0.90', position: 'top', fontSize: 9, fill: '#ef4444', dy: -4 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <Panel className="chart-panel">
+          <PanelHeader title="Threshold sensitivity" meta="Offline evaluation series" />
+          <div className="chart-body">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={THRESHOLD_DATA} margin={{ top: 18, right: 24, bottom: 22, left: 0 }}>
+                <CartesianGrid {...grid} />
+                <XAxis
+                  dataKey="threshold"
+                  tick={tick}
+                  tickFormatter={(value: number) => value.toFixed(2)}
+                  label={{ value: 'THRESHOLD', position: 'insideBottom', offset: -13, fontSize: 9, fill: '#788896' }}
+                />
+                <YAxis tick={tick} domain={[0, 1]} />
+                <Tooltip formatter={(value: any) => Number(value).toFixed(3)} contentStyle={tooltip} />
+                <Legend wrapperStyle={{ fontSize: 10, color: '#8e9daa', paddingTop: 5 }} />
+                <ReferenceLine x={0.90} stroke="#7f8e9a" strokeDasharray="4 3" />
+                <Line type="monotone" dataKey="precision" stroke="#5aa9ed" strokeWidth={1.8} dot={{ r: 2 }} name="Precision" isAnimationActive={false} />
+                <Line type="monotone" dataKey="recall" stroke="#63b68d" strokeWidth={1.8} dot={{ r: 2 }} name="Recall" isAnimationActive={false} />
+                <Line type="monotone" dataKey="f1" stroke="#d89b3c" strokeWidth={1.8} dot={{ r: 2 }} name="F1" isAnimationActive={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="chart-footnote">Raising the threshold tends to improve precision while reducing recall; lower it to widen review coverage.</div>
+        </Panel>
 
-        {/* Threshold Sensitivity */}
-        <div className="bg-white p-6 rounded border border-slate-200 shadow-sm h-80 flex flex-col">
-          <h3 className="text-sm font-semibold text-slate-900 mb-1">Threshold Sensitivity</h3>
-          <p className="text-xs text-slate-400 mb-4">Precision / Recall / F1 across decision thresholds</p>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={THRESHOLD_DATA} margin={{ top: 4, right: 16, bottom: 20, left: 4 }}>
-              <CartesianGrid {...GRID_STYLE} />
-              <XAxis
-                dataKey="threshold" tick={TICK_STYLE}
-                label={{ value: 'Threshold', position: 'insideBottom', offset: -12, fontSize: 11, fill: '#64748b' }}
-                tickFormatter={(v: number) => v.toFixed(2)}
-              />
-              <YAxis tick={TICK_STYLE} domain={[0, 1]} />
-              <Tooltip formatter={(v: any) => (v as number).toFixed(3)} contentStyle={TOOLTIP_STYLE} />
-              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-              <ReferenceLine x={0.90} stroke="#94a3b8" strokeDasharray="4 2"
-                label={{ value: 'model default', position: 'top', fontSize: 9, fill: '#94a3b8' }} />
-              <Line type="monotone" dataKey="precision" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} name="Precision" />
-              <Line type="monotone" dataKey="recall"    stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} name="Recall" />
-              <Line type="monotone" dataKey="f1"        stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} strokeDasharray="4 2" name="F1" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Confusion Matrix */}
-        <div className="bg-white p-6 rounded border border-slate-200 shadow-sm col-span-1 md:col-span-2 flex flex-col">
-          <h3 className="text-sm font-semibold text-slate-900 mb-1">Confusion Matrix</h3>
-          <p className="text-xs text-slate-400 mb-6">Test set (timesteps 42–49), threshold = 0.90</p>
-          <div className="flex items-center justify-center py-2">
-            <table className="text-sm border-collapse">
+        <Panel className="confusion-panel">
+          <PanelHeader title="Confusion matrix" meta="Threshold 0.90 · test split" />
+          <div className="confusion-layout">
+            <table className="confusion-matrix">
+              <thead>
+                <tr><th /><th>Predicted licit</th><th>Predicted illicit</th></tr>
+              </thead>
               <tbody>
                 <tr>
-                  <td className="p-3 border border-slate-200 bg-slate-50 text-right font-medium text-slate-500" />
-                  <td className="p-3 border border-slate-200 bg-slate-50 text-center font-medium text-slate-700 w-36">Pred Licit</td>
-                  <td className="p-3 border border-slate-200 bg-slate-50 text-center font-medium text-slate-700 w-36">Pred Illicit</td>
+                  <th>Actual licit</th>
+                  <td><strong>17,955</strong><span>True negative</span></td>
+                  <td className="is-error"><strong>554</strong><span>False positive</span></td>
                 </tr>
                 <tr>
-                  <td className="p-3 border border-slate-200 bg-slate-50 text-right font-medium text-slate-700">Actual Licit</td>
-                  <td className="p-5 border border-slate-200 text-center bg-white text-slate-900 text-lg">17,955</td>
-                  <td className="p-5 border border-slate-200 text-center bg-red-50 text-red-800 text-lg font-semibold">554</td>
-                </tr>
-                <tr>
-                  <td className="p-3 border border-slate-200 bg-slate-50 text-right font-medium text-slate-700">Actual Illicit</td>
-                  <td className="p-5 border border-slate-200 text-center bg-red-50 text-red-800 text-lg font-semibold">670</td>
-                  <td className="p-5 border border-slate-200 text-center bg-white text-slate-900 text-lg">1,004</td>
+                  <th>Actual illicit</th>
+                  <td className="is-error"><strong>670</strong><span>False negative</span></td>
+                  <td className="is-correct"><strong>1,004</strong><span>True positive</span></td>
                 </tr>
               </tbody>
             </table>
+            <dl className="matrix-summary">
+              <div><dt>Accuracy</dt><dd>0.94</dd></div>
+              <div><dt>Illicit F1</dt><dd>0.6386</dd></div>
+              <div><dt>Weighted F1</dt><dd>0.9419</dd></div>
+              <div><dt>MCC</dt><dd>0.6093</dd></div>
+            </dl>
           </div>
-          <div className="flex justify-center space-x-8 mt-4 text-xs text-slate-500">
-            <span>Accuracy: <strong className="text-slate-700">0.94</strong></span>
-            <span>Illicit F1: <strong className="text-slate-700">0.6386</strong></span>
-            <span>Weighted F1: <strong className="text-slate-700">0.9419</strong></span>
-            <span>MCC: <strong className="text-slate-700">0.6093</strong></span>
-          </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );

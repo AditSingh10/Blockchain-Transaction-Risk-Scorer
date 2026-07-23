@@ -9,8 +9,9 @@
 
 Real-time Bitcoin transaction fraud detection using a Graph Attention Network (GAT-ResNet) trained on the Elliptic dataset. A streaming pipeline replays the dataset transaction-by-transaction, runs GNN inference on each transaction's 2-hop subgraph, and pushes scored results to a React dashboard over WebSocket.
 
+## Product preview
 
-
+![Risk Monitor live blockchain fraud investigation console](docs/images/risk-monitor-live-console.png)
 
 ---
 
@@ -62,6 +63,21 @@ npm install        # first time only
 npm start
 ```
 Dashboard available at `http://localhost:3000`.
+
+### Frontend demo mode
+
+When the Elliptic dataset or Python model environment is unavailable, the
+frontend can run against deterministic development fixtures:
+
+```bash
+cd frontend
+REACT_APP_DEMO_MODE=true npm start
+```
+
+Production behavior remains the default. Demo fixtures are isolated under
+`frontend/src/demo/` and are never used unless the environment flag is set.
+Use `REACT_APP_DEMO_STATE=disconnected` with demo mode to inspect the explicit
+pipeline-disconnected state.
 
 ---
 
