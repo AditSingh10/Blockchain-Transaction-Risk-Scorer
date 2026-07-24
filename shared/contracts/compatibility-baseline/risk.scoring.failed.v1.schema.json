@@ -1,0 +1,133 @@
+{
+  "$defs": {
+    "ScoringFailedPayloadV1": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_count": {
+          "minimum": 1,
+          "title": "Attempt Count",
+          "type": "integer"
+        },
+        "error_class": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Error Class",
+          "type": "string"
+        },
+        "failed_at": {
+          "format": "date-time",
+          "title": "Failed At",
+          "type": "string"
+        },
+        "failure_stage": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Failure Stage",
+          "type": "string"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        },
+        "sanitized_error": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Sanitized Error",
+          "type": "string"
+        },
+        "tx_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Tx Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "failure_stage",
+        "error_class",
+        "sanitized_error",
+        "attempt_count",
+        "retryable",
+        "failed_at"
+      ],
+      "title": "ScoringFailedPayloadV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "risk.scoring.failed.v1",
+      "default": "risk.scoring.failed.v1",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/ScoringFailedPayloadV1"
+    },
+    "produced_at": {
+      "format": "date-time",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 64,
+      "minLength": 2,
+      "title": "Producer",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "trace_id": {
+      "maxLength": 64,
+      "minLength": 16,
+      "title": "Trace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "trace_id",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "ScoringFailedV1",
+  "type": "object"
+}

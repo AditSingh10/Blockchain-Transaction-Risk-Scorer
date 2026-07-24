@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "ScoringRequestedPayloadV1": {
+      "additionalProperties": false,
+      "properties": {
+        "event_sequence": {
+          "minimum": 1,
+          "title": "Event Sequence",
+          "type": "integer"
+        },
+        "feature_schema_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Feature Schema Version",
+          "type": "string"
+        },
+        "graph_watermark": {
+          "minimum": 1,
+          "title": "Graph Watermark",
+          "type": "integer"
+        },
+        "requested_at": {
+          "format": "date-time",
+          "title": "Requested At",
+          "type": "string"
+        },
+        "source_ingested_at": {
+          "format": "date-time",
+          "title": "Source Ingested At",
+          "type": "string"
+        },
+        "source_time_step": {
+          "minimum": 1,
+          "title": "Source Time Step",
+          "type": "integer"
+        },
+        "tx_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Tx Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "graph_watermark",
+        "source_time_step",
+        "event_sequence",
+        "feature_schema_version",
+        "source_ingested_at",
+        "requested_at"
+      ],
+      "title": "ScoringRequestedPayloadV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "risk.scoring.requested.v1",
+      "default": "risk.scoring.requested.v1",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/ScoringRequestedPayloadV1"
+    },
+    "produced_at": {
+      "format": "date-time",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 64,
+      "minLength": 2,
+      "title": "Producer",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "trace_id": {
+      "maxLength": 64,
+      "minLength": 16,
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "traceparent": {
+      "anyOf": [
+        {
+          "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Traceparent"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "trace_id",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "ScoringRequestedV1",
+  "type": "object"
+}

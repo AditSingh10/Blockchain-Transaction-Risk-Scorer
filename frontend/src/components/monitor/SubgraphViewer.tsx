@@ -4,6 +4,7 @@ import { DEMO_MODE, getDemoSubgraph } from '../../demo/fixtures';
 import { SubgraphData } from '../../types';
 import { formatPercent, truncateId } from '../../utils/format';
 import { IconButton, LoadingState } from '../ui/Workbench';
+import { API_BASE_URL } from '../../config';
 
 interface Props {
   txId: string;
@@ -45,13 +46,13 @@ export const SubgraphViewer: React.FC<Props> = ({
 
     const request = DEMO_MODE
       ? getDemoSubgraph(txId)
-      : fetch(`http://localhost:8000/subgraph/${encodeURIComponent(txId)}`).then(async response => {
+      : fetch(`${API_BASE_URL}/api/v1/subgraph/${encodeURIComponent(txId)}`).then(async response => {
           if (!response.ok) {
             const body = await response.json().catch(() => ({}));
             throw new Error(
               body.detail
               ?? (response.status === 404
-                ? 'Transaction is not yet available in the graph buffer.'
+                ? 'Transaction is not yet available in the durable graph.'
                 : `Graph service returned ${response.status}.`)
             );
           }

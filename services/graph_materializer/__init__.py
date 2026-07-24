@@ -1,0 +1,1 @@
+"""Ordered graph materializer."""

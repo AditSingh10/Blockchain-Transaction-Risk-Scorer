@@ -7,6 +7,19 @@ export interface Transaction {
   flagged: boolean;
   inference_latency_ms: number;
   neighbors?: string[];
+  queue_delay_ms?: number;
+  end_to_end_latency_ms?: number;
+  scoring_end_to_end_latency_ms?: number;
+  persistence_latency_ms?: number;
+  redis_publication_latency_ms?: number;
+  redis_to_websocket_latency_ms?: number;
+  ingest_to_redis_ms?: number;
+  delivery_mode?: 'live' | 'replay';
+  model_version?: string;
+  model_deployed_at?: string;
+  model_checksum?: string;
+  feature_schema_version?: string;
+  graph_watermark?: number;
 }
 
 export type NavPage = 'monitor' | 'alerts' | 'entity' | 'performance' | 'metrics';

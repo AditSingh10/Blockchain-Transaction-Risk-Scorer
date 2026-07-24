@@ -1,0 +1,250 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graph-materializer
+  namespace: risk-monitor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector:
+    matchLabels: {app: graph-materializer}
+  template:
+    metadata:
+      labels: {app: graph-materializer}
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["python", "-m", "services.graph_materializer.main"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports: [{name: metrics, containerPort: 9100}]
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbox-relay
+  namespace: risk-monitor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector:
+    matchLabels: {app: outbox-relay}
+  template:
+    metadata:
+      labels: {app: outbox-relay}
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["python", "-m", "services.outbox_relay.main"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports: [{name: metrics, containerPort: 9100}]
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-worker
+  namespace: risk-monitor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: inference-worker}
+  template:
+    metadata:
+      labels: {app: inference-worker}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["python", "-m", "services.inference_worker.main"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports: [{name: metrics, containerPort: 9100}]
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: {cpu: "1", memory: 1Gi}
+            limits: {cpu: "4", memory: 4Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: result-projector
+  namespace: risk-monitor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector:
+    matchLabels: {app: result-projector}
+  template:
+    metadata:
+      labels: {app: result-projector}
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["python", "-m", "services.result_projector.main"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports: [{name: metrics, containerPort: 9100}]
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: risk-monitor
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app: api-gateway}
+  template:
+    metadata:
+      labels: {app: api-gateway}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["uvicorn", "services.api_gateway.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports:
+            - {name: http, containerPort: 8000}
+          livenessProbe:
+            httpGet: {path: /health/live, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /health/ready, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 200m, memory: 256Mi}
+            limits: {cpu: "2", memory: 1Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replay-producer
+  namespace: risk-monitor
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app: replay-producer}
+  template:
+    metadata:
+      labels: {app: replay-producer}
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: service
+          image: ghcr.io/aditsingh10/risk-monitor-backend:1.0.0
+          command: ["python", "-m", "services.replay_producer.main"]
+          envFrom:
+            - configMapRef: {name: risk-monitor-config}
+            - secretRef: {name: risk-monitor-secrets}
+          ports: [{name: metrics, containerPort: 9100}]
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 512Mi}
+            limits: {cpu: "1", memory: 2Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: risk-monitor
+spec:
+  selector: {app: api-gateway}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  namespace: risk-monitor
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: api-gateway}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: inference-worker
+  namespace: risk-monitor
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: inference-worker}

@@ -1,0 +1,318 @@
+name: risk-monitor
+
+x-app-environment: &app-environment
+  RISK_ENVIRONMENT: local-compose
+  RISK_LOG_LEVEL: INFO
+  RISK_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  RISK_POSTGRES_DSN: postgresql+asyncpg://risk:risk@postgres:5432/risk
+  RISK_REDIS_URL: redis://redis:6379/0
+  RISK_MODEL_PATH: /app/models/gat_resnet_elliptic.pt
+  RISK_SCALER_PATH: /app/models/scaler.pkl
+  RISK_ELLIPTIC_DATA_DIR: /opt/risk-fixture
+  RISK_REPLAY_EVENTS_PER_SECOND: "10"
+  RISK_METRICS_PORT: "9100"
+  RISK_OTEL_EXPORTER_ENDPOINT: http://otel-collector:4318/v1/traces
+  RISK_CORS_ORIGINS: '["http://localhost:3000"]'
+
+x-app: &app
+  build:
+    context: .
+    dockerfile: infra/docker/backend.Dockerfile
+    target: runtime
+  image: risk-monitor-backend:local
+  init: true
+  restart: unless-stopped
+  environment:
+    <<: *app-environment
+
+x-bootstrap-ready: &bootstrap-ready
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  kafka:
+    condition: service_healthy
+  migrate:
+    condition: service_completed_successfully
+  topic-bootstrap:
+    condition: service_completed_successfully
+
+services:
+  postgres:
+    image: postgres:16.6-alpine3.21
+    environment:
+      POSTGRES_DB: risk
+      POSTGRES_USER: risk
+      POSTGRES_PASSWORD: risk
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U risk -d risk"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.1-alpine3.20
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_MESSAGE_MAX_BYTES: "67108864"
+      KAFKA_REPLICA_FETCH_MAX_BYTES: "67108864"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-topics --bootstrap-server localhost:29092 --list >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  topic-bootstrap:
+    <<: *app
+    command: ["python", "scripts/bootstrap_topics.py"]
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  graph-materializer:
+    <<: *app
+    command: ["python", "-m", "services.graph_materializer.main"]
+    depends_on: *bootstrap-ready
+
+  outbox-relay:
+    <<: *app
+    command: ["python", "-m", "services.outbox_relay.main"]
+    depends_on: *bootstrap-ready
+
+  inference-worker:
+    <<: *app
+    command: ["python", "-m", "services.inference_worker.main"]
+    stop_grace_period: 45s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; data=urllib.request.urlopen('http://localhost:9100/metrics', timeout=2).read(); assert b'inference_worker_ready 1.0' in data",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    depends_on: *bootstrap-ready
+
+  result-projector:
+    <<: *app
+    command: ["python", "-m", "services.result_projector.main"]
+    depends_on: *bootstrap-ready
+
+  api-gateway:
+    <<: *app
+    command:
+      [
+        "uvicorn",
+        "services.api_gateway.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--no-access-log",
+      ]
+    deploy:
+      replicas: 2
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on: *bootstrap-ready
+
+  gateway-lb:
+    image: nginx:1.27.3-alpine3.20
+    volumes:
+      - ./infra/docker/gateway-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "8000:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+  replay-producer:
+    <<: *app
+    command: ["python", "-m", "services.replay_producer.main"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      topic-bootstrap:
+        condition: service_completed_successfully
+      inference-worker:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/frontend.Dockerfile
+      args:
+        REACT_APP_WS_URL: ws://localhost:8000/api/v1/ws
+        REACT_APP_API_URL: http://localhost:8000
+    image: risk-monitor-frontend:local
+    ports:
+      - "3000:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      gateway-lb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./infra/otel/collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - tempo
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/otel/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - graph-materializer
+      - outbox-relay
+      - inference-worker
+      - result-projector
+      - api-gateway
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - tempo
+    restart: unless-stopped
+
+  test-runner:
+    build:
+      context: .
+      dockerfile: infra/docker/backend.Dockerfile
+      target: test
+    image: risk-monitor-tests:local
+    profiles: ["test"]
+    environment:
+      <<: *app-environment
+      RISK_POSTGRES_DSN: postgresql+asyncpg://risk:risk@postgres:5432/risk
+      RISK_REDIS_URL: redis://redis:6379/0
+      RISK_INTEGRATION_API_URL: http://gateway-lb:8080
+      RISK_INTEGRATION_WS_URL: ws://gateway-lb:8080/api/v1/ws
+    command: ["pytest", "tests/unit", "tests/contract", "tests/integration", "tests/failure"]
+    depends_on:
+      gateway-lb:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  prometheus-data:
+  grafana-data:
+  tempo-data:

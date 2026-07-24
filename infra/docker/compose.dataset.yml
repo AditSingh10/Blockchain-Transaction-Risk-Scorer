@@ -1,0 +1,6 @@
+services:
+  replay-producer:
+    environment:
+      RISK_ELLIPTIC_DATA_DIR: /data
+    volumes:
+      - ${ELLIPTIC_DATA_DIR:?set ELLIPTIC_DATA_DIR to the dataset parent}:/data:ro

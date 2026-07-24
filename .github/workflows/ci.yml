@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: ruff format --check services shared scripts migrations tests
+      - run: ruff check services shared scripts migrations tests
+      - run: mypy services shared scripts --ignore-missing-imports
+      - run: pytest tests/unit tests/contract tests/failure -q
+
+  frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.18.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test -- --watchAll=false --passWithNoTests
+      - run: npm run build
+
+  migrations:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.6-alpine3.21
+        env:
+          POSTGRES_DB: risk
+          POSTGRES_USER: risk
+          POSTGRES_PASSWORD: risk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U risk -d risk"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      RISK_POSTGRES_DSN: postgresql+asyncpg://risk:risk@localhost:5432/risk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: alembic upgrade head
+      - run: alembic downgrade base
+      - run: alembic upgrade head
+      - run: alembic check
+
+  images:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - run: docker build --target runtime -f infra/docker/backend.Dockerfile -t risk-backend:test .
+      - run: docker build -f infra/docker/frontend.Dockerfile -t risk-frontend:test .

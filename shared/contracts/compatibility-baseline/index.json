@@ -1,0 +1,7 @@
+{
+  "risk.dead-lettered.v1": "risk.dead-lettered.v1.schema.json",
+  "risk.graph-batch.observed.v1": "risk.graph-batch.observed.v1.schema.json",
+  "risk.scoring.completed.v1": "risk.scoring.completed.v1.schema.json",
+  "risk.scoring.failed.v1": "risk.scoring.failed.v1.schema.json",
+  "risk.scoring.requested.v1": "risk.scoring.requested.v1.schema.json"
+}

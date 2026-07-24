@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: risk-monitor-config
+  namespace: risk-monitor
+data:
+  RISK_ENVIRONMENT: production
+  RISK_LOG_LEVEL: INFO
+  RISK_KAFKA_BOOTSTRAP_SERVERS: managed-kafka.example.internal:9093
+  RISK_KAFKA_SECURITY_PROTOCOL: SASL_SSL
+  RISK_GRAPH_BATCH_TOPIC: risk.graph-batches.v1
+  RISK_SCORING_REQUEST_TOPIC: risk.scoring-requests.v1
+  RISK_SCORING_RESULT_TOPIC: risk.scoring-results.v1
+  RISK_SCORING_DLQ_TOPIC: risk.scoring-dlq.v1
+  RISK_REDIS_STREAM_KEY: risk:scoring-results:v1
+  RISK_REDIS_STREAM_MAXLEN: "100000"
+  RISK_DATABASE_POOL_SIZE: "10"
+  RISK_DATABASE_MAX_OVERFLOW: "5"
+  RISK_QUERY_TIMEOUT_MS: "1500"
+  RISK_MAX_IN_FLIGHT_INFERENCE: "16"
+  RISK_WEBSOCKET_CLIENT_QUEUE_SIZE: "256"
+  RISK_CORS_ORIGINS: '["https://risk-monitor.example.com"]'
+  RISK_MODEL_PATH: /app/models/gat_resnet_elliptic.pt
+  RISK_SCALER_PATH: /app/models/scaler.pkl
+  RISK_METRICS_PORT: "9100"
+  RISK_OTEL_EXPORTER_ENDPOINT: http://otel-collector.observability:4318/v1/traces

@@ -98,13 +98,20 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [streamSpeed, setStreamSpeedState] = useState(0.05);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const lastEventIdRef = useRef(window.localStorage.getItem('risk-monitor-last-event-id'));
+  const recentEventIdsRef = useRef<string[]>([]);
+  const recentEventIdSetRef = useRef(new Set<string>());
   const isPausedRef = useRef(isPaused);
   const thresholdRef = useRef(threshold);
+  const streamSpeedRef = useRef(streamSpeed);
   const totalCountRef = useRef(totalCount);
   const demoIndexRef = useRef(58);
 
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
   useEffect(() => { thresholdRef.current = threshold; }, [threshold]);
+  useEffect(() => { streamSpeedRef.current = streamSpeed; }, [streamSpeed]);
 
   const setThreshold = useCallback((value: number) => {
     setThresholdState(value);
@@ -114,6 +121,15 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const clearAlerts = useCallback(() => setAlerts([]), []);
+
+  const setPaused = useCallback((value: boolean) => {
+    setIsPaused(value);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: value ? 'pause_replay' : 'resume_replay',
+      }));
+    }
+  }, []);
 
   const setStreamSpeed = useCallback((value: number) => {
     setStreamSpeedState(value);
@@ -125,7 +141,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const ingestTransaction = useCallback((incoming: Transaction) => {
     const tx = {
       ...incoming,
-      timestamp: Date.now(),
+      timestamp: incoming.timestamp || Date.now(),
       threshold: thresholdRef.current,
       flagged: incoming.illicit_probability >= thresholdRef.current,
     };
@@ -173,29 +189,82 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   useEffect(() => {
     if (DEMO_MODE) return;
-    const ws = new WebSocket('ws://localhost:8000/ws');
-    wsRef.current = ws;
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
-    ws.onmessage = (event: MessageEvent) => {
-      let message: unknown;
-      try {
-        message = JSON.parse(event.data);
-      } catch {
-        return;
+    let stopped = false;
+
+    const rememberEvent = (eventId: string) => {
+      if (recentEventIdSetRef.current.has(eventId)) return false;
+      recentEventIdSetRef.current.add(eventId);
+      recentEventIdsRef.current.push(eventId);
+      if (recentEventIdsRef.current.length > 1000) {
+        const expired = recentEventIdsRef.current.shift();
+        if (expired) recentEventIdSetRef.current.delete(expired);
       }
-      if (
-        typeof message !== 'object'
-        || message === null
-        || !('type' in message)
-        || (message as { type: string }).type !== 'transaction'
-        || !('data' in message)
-        || isPausedRef.current
-      ) return;
-      ingestTransaction((message as { data: Transaction }).data);
+      return true;
     };
-    return () => ws.close();
+
+    const connect = () => {
+      const configuredUrl = process.env.REACT_APP_WS_URL;
+      const fallbackProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const fallbackUrl = `${fallbackProtocol}//${window.location.hostname}:8000/api/v1/ws`;
+      const url = new URL(configuredUrl || fallbackUrl);
+      if (lastEventIdRef.current) {
+        url.searchParams.set('last_event_id', lastEventIdRef.current);
+      }
+
+      const ws = new WebSocket(url.toString());
+      wsRef.current = ws;
+      ws.onopen = () => {
+        reconnectAttemptRef.current = 0;
+        setConnected(true);
+        ws.send(JSON.stringify({ type: 'set_threshold', value: thresholdRef.current }));
+        ws.send(JSON.stringify({ type: 'set_speed', interval: streamSpeedRef.current }));
+        if (isPausedRef.current) ws.send(JSON.stringify({ type: 'pause_replay' }));
+      };
+      ws.onclose = () => {
+        setConnected(false);
+        if (stopped) return;
+        const delay = Math.min(1000 * (2 ** reconnectAttemptRef.current), 10_000);
+        reconnectAttemptRef.current += 1;
+        reconnectTimerRef.current = window.setTimeout(connect, delay);
+      };
+      ws.onerror = () => {
+        setConnected(false);
+        ws.close();
+      };
+      ws.onmessage = (event: MessageEvent) => {
+        let message: unknown;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (typeof message !== 'object' || message === null || !('type' in message)) return;
+        const typed = message as {
+          type: string;
+          data?: Transaction;
+          event_id?: string;
+          stream_id?: string;
+          last_event_id?: string | null;
+        };
+        const cursor = typed.stream_id || typed.last_event_id;
+        if (cursor) {
+          lastEventIdRef.current = cursor;
+          window.localStorage.setItem('risk-monitor-last-event-id', cursor);
+        }
+        if (typed.type !== 'transaction' || !typed.data || isPausedRef.current) return;
+        if (typed.event_id && !rememberEvent(typed.event_id)) return;
+        ingestTransaction(typed.data);
+      };
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+      }
+      wsRef.current?.close();
+    };
   }, [ingestTransaction]);
 
   const avgLatency = latencies.length
@@ -208,7 +277,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       demoMode: DEMO_MODE,
       transactions,
       isPaused,
-      setIsPaused,
+      setIsPaused: setPaused,
       avgLatency,
       threshold,
       setThreshold,
@@ -226,6 +295,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       connected,
       transactions,
       isPaused,
+      setPaused,
       avgLatency,
       threshold,
       setThreshold,

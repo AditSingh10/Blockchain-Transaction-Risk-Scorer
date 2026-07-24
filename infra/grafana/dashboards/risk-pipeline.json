@@ -1,0 +1,94 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Pipeline throughput",
+      "targets": [
+        {"expr": "sum(rate(inference_worker_requests_total{outcome=\"success\"}[1m]))", "legendFormat": "scores/s"},
+        {"expr": "sum(rate(replay_producer_events_total{outcome=\"success\"}[1m]))", "legendFormat": "batches/s"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Kafka consumer lag",
+      "targets": [
+        {"expr": "sum by (consumer_group) (risk_kafka_consumer_lag)", "legendFormat": "{{consumer_group}}"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Inference latency percentiles",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(inference_worker_inference_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(inference_worker_inference_seconds_bucket[5m])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(inference_worker_inference_seconds_bucket[5m])) by (le))", "legendFormat": "p99"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "End-to-end latency percentiles",
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(inference_worker_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(inference_worker_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(inference_worker_end_to_end_seconds_bucket[5m])) by (le))", "legendFormat": "p99"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors, retries, and DLQ",
+      "targets": [
+        {"expr": "sum(rate(inference_worker_requests_total{outcome!=\"success\"}[5m]))", "legendFormat": "errors/s"},
+        {"expr": "sum(rate(inference_worker_retry_total[5m]))", "legendFormat": "retries/s"},
+        {"expr": "sum(rate(inference_worker_dlq_total[5m]))", "legendFormat": "DLQ/s"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbox backlog",
+      "targets": [
+        {"expr": "outbox_relay_backlog", "legendFormat": "Kafka"},
+        {"expr": "result_projector_redis_backlog", "legendFormat": "Redis"}
+      ],
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8}
+    },
+    {
+      "type": "stat",
+      "title": "Active inference workers",
+      "targets": [{"expr": "count(up{job=\"inference-workers\"} == 1)"}],
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 16}
+    },
+    {
+      "type": "stat",
+      "title": "Active WebSocket clients",
+      "targets": [{"expr": "sum(api_gateway_websocket_active_clients)"}],
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 16}
+    },
+    {
+      "type": "stat",
+      "title": "PostgreSQL serving health",
+      "targets": [{"expr": "up{job=\"api-gateway\"}"}],
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 16}
+    },
+    {
+      "type": "stat",
+      "title": "Redis publication failures",
+      "targets": [{"expr": "sum(increase(result_projector_redis_failures_total[1h]))"}],
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 16}
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 40,
+  "tags": ["risk-monitor", "kafka", "gnn"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "title": "Risk scoring pipeline",
+  "uid": "risk-pipeline-v1",
+  "version": 1
+}

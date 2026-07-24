@@ -1,0 +1,64 @@
+name: Distributed integration and failure tests
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "services/**"
+      - "shared/**"
+      - "migrations/**"
+      - "infra/**"
+      - "docker-compose.yml"
+      - "tests/integration/**"
+      - "tests/failure/**"
+
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start full pipeline with three workers
+        run: docker compose up --build -d --scale inference-worker=3
+      - name: Verify end-to-end pipeline
+        run: >-
+          docker compose run --rm -T test-runner
+          python scripts/verify_pipeline.py
+          --api-url http://gateway-lb:8080
+          --websocket-url ws://gateway-lb:8080/api/v1/ws
+      - name: Run integration invariants
+        run: docker compose run --rm -T test-runner pytest tests/integration -q
+      - name: Issue accepted request and crash workers
+        id: probe
+        shell: bash
+        run: |
+          probe_json=$(docker compose run --rm -T --no-deps test-runner python scripts/failure_probe.py issue | tail -1)
+          result_id=$(python -c 'import json,sys; print(json.loads(sys.argv[1])["result_event_id"])' "$probe_json")
+          echo "result_id=$result_id" >> "$GITHUB_OUTPUT"
+          docker compose kill inference-worker
+          docker compose up -d --scale inference-worker=3 inference-worker
+      - name: Verify recovery after crash
+        run: >-
+          docker compose run --rm -T --no-deps test-runner
+          python scripts/failure_probe.py verify
+          --result-event-id "${{ steps.probe.outputs.result_id }}"
+      - name: Record benchmark
+        run: >-
+          docker compose run --rm -T --no-deps test-runner
+          python scripts/benchmark.py
+          --postgres-dsn postgresql+asyncpg://risk:risk@postgres:5432/risk
+          --redis-url redis://redis:6379/0
+          --websocket-url ws://gateway-lb:8080/api/v1/ws
+          --worker-count 3
+          --websocket-duration 3
+          > benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-benchmark
+          path: benchmark.json
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+      - name: Clean up
+        if: always()
+        run: docker compose down -v

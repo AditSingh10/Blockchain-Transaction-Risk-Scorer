@@ -17,6 +17,7 @@ import {
 import { useNavigation } from '../context/NavigationContext';
 import { EntityData } from '../types';
 import { formatPercent, truncateId } from '../utils/format';
+import { API_BASE_URL } from '../config';
 
 export const EntityExplorer: React.FC = () => {
   const { entityQuery } = useNavigation();
@@ -42,7 +43,7 @@ export const EntityExplorer: React.FC = () => {
     try {
       const data = DEMO_MODE
         ? await getDemoEntity(id)
-        : await fetch(`http://localhost:8000/entity/${encodeURIComponent(id)}`).then(async response => {
+        : await fetch(`${API_BASE_URL}/api/v1/entity/${encodeURIComponent(id)}`).then(async response => {
             if (!response.ok) {
               const body = await response.json().catch(() => ({}));
               throw new Error(body.detail ?? `Entity service returned ${response.status}.`);
@@ -92,7 +93,7 @@ export const EntityExplorer: React.FC = () => {
         <button className="button button-primary" disabled={!searchInput.trim() || loading}>
           {loading ? 'Querying…' : 'Run query'}
         </button>
-        <span className="query-scope">Scope: streamed graph buffer</span>
+        <span className="query-scope">Scope: durable transaction graph</span>
       </form>
 
       {history.length > 0 && (

@@ -1,0 +1,196 @@
+{
+  "$defs": {
+    "ScoringCompletedPayloadV1": {
+      "additionalProperties": false,
+      "properties": {
+        "end_to_end_latency_ms": {
+          "minimum": 0.0,
+          "title": "End To End Latency Ms",
+          "type": "number"
+        },
+        "event_sequence": {
+          "minimum": 1,
+          "title": "Event Sequence",
+          "type": "integer"
+        },
+        "feature_schema_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Feature Schema Version",
+          "type": "string"
+        },
+        "graph_watermark": {
+          "minimum": 1,
+          "title": "Graph Watermark",
+          "type": "integer"
+        },
+        "illicit_probability": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Illicit Probability",
+          "type": "number"
+        },
+        "inference_latency_ms": {
+          "minimum": 0.0,
+          "title": "Inference Latency Ms",
+          "type": "number"
+        },
+        "model_checksum": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Model Checksum",
+          "type": "string"
+        },
+        "model_deployed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Deployed At"
+        },
+        "model_version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Model Version",
+          "type": "string"
+        },
+        "queue_delay_ms": {
+          "minimum": 0.0,
+          "title": "Queue Delay Ms",
+          "type": "number"
+        },
+        "scored_at": {
+          "format": "date-time",
+          "title": "Scored At",
+          "type": "string"
+        },
+        "source_ingested_at": {
+          "format": "date-time",
+          "title": "Source Ingested At",
+          "type": "string"
+        },
+        "source_time_step": {
+          "minimum": 1,
+          "title": "Source Time Step",
+          "type": "integer"
+        },
+        "tx_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Tx Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tx_id",
+        "illicit_probability",
+        "model_version",
+        "model_checksum",
+        "feature_schema_version",
+        "graph_watermark",
+        "source_time_step",
+        "event_sequence",
+        "source_ingested_at",
+        "queue_delay_ms",
+        "inference_latency_ms",
+        "end_to_end_latency_ms",
+        "scored_at"
+      ],
+      "title": "ScoringCompletedPayloadV1",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "causation_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Causation Id"
+    },
+    "correlation_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Correlation Id",
+      "type": "string"
+    },
+    "event_id": {
+      "maxLength": 36,
+      "minLength": 36,
+      "title": "Event Id",
+      "type": "string"
+    },
+    "event_type": {
+      "const": "risk.scoring.completed.v1",
+      "default": "risk.scoring.completed.v1",
+      "title": "Event Type",
+      "type": "string"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "payload": {
+      "$ref": "#/$defs/ScoringCompletedPayloadV1"
+    },
+    "produced_at": {
+      "format": "date-time",
+      "title": "Produced At",
+      "type": "string"
+    },
+    "producer": {
+      "maxLength": 64,
+      "minLength": 2,
+      "title": "Producer",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "trace_id": {
+      "maxLength": 64,
+      "minLength": 16,
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "traceparent": {
+      "anyOf": [
+        {
+          "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Traceparent"
+    }
+  },
+  "required": [
+    "event_id",
+    "occurred_at",
+    "producer",
+    "trace_id",
+    "correlation_id",
+    "payload"
+  ],
+  "title": "ScoringCompletedV1",
+  "type": "object"
+}
