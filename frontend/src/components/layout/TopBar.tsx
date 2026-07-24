@@ -10,12 +10,15 @@ export const TopBar: React.FC = () => {
   const {
     connected,
     demoMode,
+    streamStatus,
+    pendingCount,
     avgLatency,
     threshold,
     isPaused,
     setIsPaused,
   } = useWebSocketContext();
   const [query, setQuery] = useState('');
+  const replayComplete = streamStatus === 'completed' && pendingCount === 0;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -59,10 +62,11 @@ export const TopBar: React.FC = () => {
         <button
           className={`stream-state${isPaused ? ' is-paused' : ''}`}
           onClick={() => setIsPaused(!isPaused)}
+          disabled={replayComplete}
           type="button"
         >
           <Icon name={isPaused ? 'play' : 'pause'} size={13} />
-          {isPaused ? 'Resume' : 'Streaming'}
+          {replayComplete ? 'Complete' : isPaused ? 'Resume' : pendingCount > 0 ? 'Replaying' : 'Streaming'}
         </button>
       </div>
     </header>

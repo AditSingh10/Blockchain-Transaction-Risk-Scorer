@@ -28,6 +28,7 @@ import {
 interface WebSocketContextValue {
   connected: boolean;
   demoMode: boolean;
+  streamStatus: 'running' | 'paused' | 'completed' | 'unknown';
   transactions: Transaction[];
   isPaused: boolean;
   setIsPaused: (v: boolean) => void;
@@ -41,6 +42,7 @@ interface WebSocketContextValue {
   latencyHistory: LatencyPoint[];
   throughputHistory: ThroughputPoint[];
   totalCount: number;
+  pendingCount: number;
   streamSpeed: number;
   setStreamSpeed: (v: number) => void;
 }
@@ -48,6 +50,7 @@ interface WebSocketContextValue {
 const defaultValue: WebSocketContextValue = {
   connected: false,
   demoMode: false,
+  streamStatus: 'unknown',
   transactions: [],
   isPaused: false,
   setIsPaused: () => {},
@@ -61,14 +64,22 @@ const defaultValue: WebSocketContextValue = {
   latencyHistory: [],
   throughputHistory: [],
   totalCount: 0,
+  pendingCount: 0,
   streamSpeed: 0.05,
   setStreamSpeed: () => {},
 };
 
 const WebSocketContext = createContext<WebSocketContextValue>(defaultValue);
+const MAX_VISIBLE_TRANSACTIONS = 10_000;
+const MAX_PENDING_TRANSACTIONS = 10_000;
+const MAX_GRAPH_NODES = 10_000;
+const MAX_GRAPH_EDGES = 50_000;
 
 export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [connected, setConnected] = useState(DEMO_MODE && !DEMO_DISCONNECTED);
+  const [streamStatus, setStreamStatus] = useState<
+    'running' | 'paused' | 'completed' | 'unknown'
+  >(DEMO_MODE && !DEMO_DISCONNECTED ? 'running' : 'unknown');
   const [transactions, setTransactions] = useState<Transaction[]>(
     DEMO_MODE && !DEMO_DISCONNECTED ? DEMO_TRANSACTIONS.slice(0, 58) : []
   );
@@ -95,14 +106,41 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [totalCount, setTotalCount] = useState(
     DEMO_MODE && !DEMO_DISCONNECTED ? DEMO_TRANSACTIONS.length : 0
   );
+  const [pendingCount, setPendingCount] = useState(0);
   const [streamSpeed, setStreamSpeedState] = useState(0.05);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
-  const lastEventIdRef = useRef(window.localStorage.getItem('risk-monitor-last-event-id'));
+  // A cursor is scoped to this mounted session. On a full page load the
+  // gateway replays its bounded recent window so the analyst workspace can
+  // rebuild; reconnects within the session resume after the latest received
+  // Redis Stream ID.
+  const lastEventIdRef = useRef<string | null>(null);
   const recentEventIdsRef = useRef<string[]>([]);
   const recentEventIdSetRef = useRef(new Set<string>());
+  const pendingTransactionsRef = useRef<Transaction[]>([]);
+  const pendingHeadRef = useRef(0);
+  const transactionIdsRef = useRef(
+    new Set(DEMO_MODE && !DEMO_DISCONNECTED
+      ? DEMO_TRANSACTIONS.slice(0, 58).map(transaction => transaction.tx_id)
+      : [])
+  );
+  const alertIdsRef = useRef(
+    new Set(DEMO_MODE && !DEMO_DISCONNECTED
+      ? DEMO_ALERTS.map(transaction => transaction.tx_id)
+      : [])
+  );
+  const graphNodeIdsRef = useRef(
+    new Set(DEMO_MODE && !DEMO_DISCONNECTED
+      ? DEMO_GRAPH_NODES.map(node => node.id)
+      : [])
+  );
+  const graphEdgeKeysRef = useRef(
+    new Set(DEMO_MODE && !DEMO_DISCONNECTED
+      ? DEMO_GRAPH_EDGES.map(edge => [edge.source, edge.target].sort().join('\u0000'))
+      : [])
+  );
   const isPausedRef = useRef(isPaused);
   const thresholdRef = useRef(threshold);
   const streamSpeedRef = useRef(streamSpeed);
@@ -120,10 +158,14 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  const clearAlerts = useCallback(() => setAlerts([]), []);
+  const clearAlerts = useCallback(() => {
+    alertIdsRef.current.clear();
+    setAlerts([]);
+  }, []);
 
   const setPaused = useCallback((value: boolean) => {
     setIsPaused(value);
+    setStreamStatus(value ? 'paused' : 'running');
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         type: value ? 'pause_replay' : 'resume_replay',
@@ -147,16 +189,81 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
     totalCountRef.current += 1;
     setLatencies(previous => [...previous.slice(-49), tx.inference_latency_ms]);
-    setTransactions(previous => [tx, ...previous].slice(0, 500));
-    if (tx.flagged) setAlerts(previous => [tx, ...previous].slice(0, 1000));
-    setGraphNodes(previous => [
-      { id: tx.tx_id, illicit_probability: tx.illicit_probability, flagged: tx.flagged },
-      ...previous.filter(node => node.id !== tx.tx_id),
-    ].slice(0, 150));
-    setGraphEdges(previous => [
-      ...(tx.neighbors ?? []).map(source => ({ source: tx.tx_id, target: source })),
-      ...previous,
-    ].slice(0, 600));
+    setTransactions(previous => {
+      if (transactionIdsRef.current.has(tx.tx_id)) {
+        return [
+          tx,
+          ...previous.filter(transaction => transaction.tx_id !== tx.tx_id),
+        ];
+      }
+      transactionIdsRef.current.add(tx.tx_id);
+      const next = [tx, ...previous];
+      if (next.length > MAX_VISIBLE_TRANSACTIONS) {
+        for (const removed of next.slice(MAX_VISIBLE_TRANSACTIONS)) {
+          transactionIdsRef.current.delete(removed.tx_id);
+        }
+        return next.slice(0, MAX_VISIBLE_TRANSACTIONS);
+      }
+      return next;
+    });
+    if (tx.flagged) {
+      setAlerts(previous => {
+        if (alertIdsRef.current.has(tx.tx_id)) {
+          return [
+            tx,
+            ...previous.filter(transaction => transaction.tx_id !== tx.tx_id),
+          ];
+        }
+        alertIdsRef.current.add(tx.tx_id);
+        const next = [tx, ...previous];
+        if (next.length > MAX_VISIBLE_TRANSACTIONS) {
+          for (const removed of next.slice(MAX_VISIBLE_TRANSACTIONS)) {
+            alertIdsRef.current.delete(removed.tx_id);
+          }
+          return next.slice(0, MAX_VISIBLE_TRANSACTIONS);
+        }
+        return next;
+      });
+    }
+    setGraphNodes(previous => {
+      const node = {
+        id: tx.tx_id,
+        illicit_probability: tx.illicit_probability,
+        flagged: tx.flagged,
+      };
+      if (graphNodeIdsRef.current.has(tx.tx_id)) {
+        return [node, ...previous.filter(existing => existing.id !== tx.tx_id)];
+      }
+      graphNodeIdsRef.current.add(tx.tx_id);
+      const next = [node, ...previous];
+      if (next.length > MAX_GRAPH_NODES) {
+        for (const removed of next.slice(MAX_GRAPH_NODES)) {
+          graphNodeIdsRef.current.delete(removed.id);
+        }
+        return next.slice(0, MAX_GRAPH_NODES);
+      }
+      return next;
+    });
+    setGraphEdges(previous => {
+      const added: GraphEdge[] = [];
+      for (const neighbor of tx.neighbors ?? []) {
+        const key = [tx.tx_id, neighbor].sort().join('\u0000');
+        if (graphEdgeKeysRef.current.has(key)) continue;
+        graphEdgeKeysRef.current.add(key);
+        added.push({ source: tx.tx_id, target: neighbor });
+      }
+      if (added.length === 0) return previous;
+      const next = [...added, ...previous];
+      if (next.length > MAX_GRAPH_EDGES) {
+        for (const removed of next.slice(MAX_GRAPH_EDGES)) {
+          graphEdgeKeysRef.current.delete(
+            [removed.source, removed.target].sort().join('\u0000')
+          );
+        }
+        return next.slice(0, MAX_GRAPH_EDGES);
+      }
+      return next;
+    });
     setLatencyHistory(previous => [
       ...previous,
       { time: tx.timestamp, latency: tx.inference_latency_ms },
@@ -174,15 +281,48 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setTotalCount(totalCountRef.current);
   }, []);
 
+  const enqueueTransaction = useCallback((incoming: Transaction) => {
+    const pending = pendingTransactionsRef.current;
+    const pendingLength = pending.length - pendingHeadRef.current;
+    if (pendingLength >= MAX_PENDING_TRANSACTIONS) {
+      pendingHeadRef.current += pendingLength - MAX_PENDING_TRANSACTIONS + 1;
+    }
+    if (pendingHeadRef.current > 1024 && pendingHeadRef.current * 2 > pending.length) {
+      pending.splice(0, pendingHeadRef.current);
+      pendingHeadRef.current = 0;
+    }
+    pending.push(incoming);
+    setPendingCount(pending.length - pendingHeadRef.current);
+  }, []);
+
   useEffect(() => {
     if (!DEMO_MODE || DEMO_DISCONNECTED) return;
     setConnected(true);
-    const intervalMs = Math.max(streamSpeed * 1000, 120);
+    const intervalMs = Math.max(streamSpeed * 1000, 10);
     const timer = window.setInterval(() => {
       if (isPausedRef.current) return;
       const index = demoIndexRef.current % DEMO_TRANSACTIONS.length;
-      ingestTransaction(DEMO_TRANSACTIONS[index]);
+      ingestTransaction({ ...DEMO_TRANSACTIONS[index], timestamp: Date.now() });
       demoIndexRef.current += 1;
+    }, intervalMs);
+    return () => window.clearInterval(timer);
+  }, [ingestTransaction, streamSpeed]);
+
+  useEffect(() => {
+    if (DEMO_MODE) return;
+    const intervalMs = Math.max(streamSpeed * 1000, 10);
+    const timer = window.setInterval(() => {
+      if (isPausedRef.current) return;
+      const pending = pendingTransactionsRef.current;
+      const next = pending[pendingHeadRef.current];
+      if (!next) return;
+      pendingHeadRef.current += 1;
+      if (pendingHeadRef.current > 1024 && pendingHeadRef.current * 2 > pending.length) {
+        pending.splice(0, pendingHeadRef.current);
+        pendingHeadRef.current = 0;
+      }
+      setPendingCount(pending.length - pendingHeadRef.current);
+      ingestTransaction(next);
     }, intervalMs);
     return () => window.clearInterval(timer);
   }, [ingestTransaction, streamSpeed]);
@@ -245,15 +385,16 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           event_id?: string;
           stream_id?: string;
           last_event_id?: string | null;
+          replay_status?: 'running' | 'paused' | 'completed';
         };
+        if (typed.replay_status) setStreamStatus(typed.replay_status);
         const cursor = typed.stream_id || typed.last_event_id;
         if (cursor) {
           lastEventIdRef.current = cursor;
-          window.localStorage.setItem('risk-monitor-last-event-id', cursor);
         }
-        if (typed.type !== 'transaction' || !typed.data || isPausedRef.current) return;
+        if (typed.type !== 'transaction' || !typed.data) return;
         if (typed.event_id && !rememberEvent(typed.event_id)) return;
-        ingestTransaction(typed.data);
+        enqueueTransaction(typed.data);
       };
     };
 
@@ -265,7 +406,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       wsRef.current?.close();
     };
-  }, [ingestTransaction]);
+  }, [enqueueTransaction]);
 
   const avgLatency = latencies.length
     ? latencies.reduce((sum, latency) => sum + latency, 0) / latencies.length
@@ -275,6 +416,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     () => ({
       connected,
       demoMode: DEMO_MODE,
+      streamStatus,
       transactions,
       isPaused,
       setIsPaused: setPaused,
@@ -288,11 +430,13 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       latencyHistory,
       throughputHistory,
       totalCount,
+      pendingCount,
       streamSpeed,
       setStreamSpeed,
     }),
     [
       connected,
+      streamStatus,
       transactions,
       isPaused,
       setPaused,
@@ -306,6 +450,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       latencyHistory,
       throughputHistory,
       totalCount,
+      pendingCount,
       streamSpeed,
       setStreamSpeed,
     ]

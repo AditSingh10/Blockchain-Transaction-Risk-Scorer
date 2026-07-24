@@ -23,8 +23,14 @@ export const LiveTransactionGraph: React.FC<Props> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
+  const graphNodeCacheRef = useRef(new Map<string, any>());
+  const graphLinkCacheRef = useRef(new Map<string, any>());
   const [size, setSize] = useState({ width: 800, height: 520 });
   const [hasInteracted, setHasInteracted] = useState(false);
+  const latestDataRef = useRef({ nodes, edges, transactions });
+  latestDataRef.current = { nodes, edges, transactions };
+  const [renderedData, setRenderedData] = useState(latestDataRef.current);
+  const hasNodes = renderedData.nodes.length > 0;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,22 +42,78 @@ export const LiveTransactionGraph: React.FC<Props> = ({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (hasInteracted || !hasNodes) return;
+    const timer = window.setInterval(() => {
+      graphRef.current?.zoomToFit(350, 56);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [hasInteracted, hasNodes]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const latest = latestDataRef.current;
+      setRenderedData(current =>
+        current.nodes === latest.nodes
+        && current.edges === latest.edges
+        && current.transactions === latest.transactions
+          ? current
+          : latest
+      );
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const transactionMap = useMemo(
-    () => new Map(transactions.map(transaction => [transaction.tx_id, transaction])),
-    [transactions]
+    () => new Map(renderedData.transactions.map(transaction => [transaction.tx_id, transaction])),
+    [renderedData.transactions]
   );
-  const nodeSet = useMemo(() => new Set(nodes.map(node => node.id)), [nodes]);
+  const nodeSet = useMemo(
+    () => new Set(renderedData.nodes.map(node => node.id)),
+    [renderedData.nodes]
+  );
   const validEdges = useMemo(
-    () => edges.filter(edge =>
+    () => renderedData.edges.filter(edge =>
       nodeSet.has(String((edge.source as any)?.id ?? edge.source))
       && nodeSet.has(String((edge.target as any)?.id ?? edge.target))
     ),
-    [edges, nodeSet]
+    [renderedData.edges, nodeSet]
   );
-  const graphData = useMemo(() => ({
-    nodes: nodes.map(node => ({ ...node })),
-    links: validEdges.map(edge => ({ ...edge })),
-  }), [nodes, validEdges]);
+  const graphData = useMemo(() => {
+    const activeNodeIds = new Set(renderedData.nodes.map(node => node.id));
+    const graphNodes = renderedData.nodes.map(node => {
+      const cached = graphNodeCacheRef.current.get(node.id);
+      if (cached) {
+        cached.illicit_probability = node.illicit_probability;
+        cached.flagged = node.flagged;
+        return cached;
+      }
+      const created = { ...node };
+      graphNodeCacheRef.current.set(node.id, created);
+      return created;
+    });
+    for (const nodeId of Array.from(graphNodeCacheRef.current.keys())) {
+      if (!activeNodeIds.has(nodeId)) graphNodeCacheRef.current.delete(nodeId);
+    }
+
+    const activeLinkKeys = new Set<string>();
+    const graphLinks = validEdges.map(edge => {
+      const source = String((edge.source as any)?.id ?? edge.source);
+      const target = String((edge.target as any)?.id ?? edge.target);
+      const key = `${source}\u0000${target}`;
+      activeLinkKeys.add(key);
+      const cached = graphLinkCacheRef.current.get(key);
+      if (cached) return cached;
+      const created = { source, target };
+      graphLinkCacheRef.current.set(key, created);
+      return created;
+    });
+    for (const linkKey of Array.from(graphLinkCacheRef.current.keys())) {
+      if (!activeLinkKeys.has(linkKey)) graphLinkCacheRef.current.delete(linkKey);
+    }
+
+    return { nodes: graphNodes, links: graphLinks };
+  }, [renderedData.nodes, validEdges]);
 
   const nodeColor = (node: any) => {
     if (node.id === selectedId) return '#8ec7ff';
@@ -62,20 +124,25 @@ export const LiveTransactionGraph: React.FC<Props> = ({
   };
 
   return (
-    <div ref={containerRef} className="live-graph-canvas">
+    <div
+      ref={containerRef}
+      className="live-graph-canvas"
+      onWheel={() => setHasInteracted(true)}
+      onPointerDown={() => setHasInteracted(true)}
+    >
       <div className="graph-legend" aria-label="Graph risk legend">
         <span><i className="legend-dot selected" />Selected</span>
         <span><i className="legend-dot critical" />High risk</span>
         <span><i className="legend-dot elevated" />Elevated</span>
         <span><i className="legend-dot clear" />Below threshold</span>
-        <code>{nodes.length} nodes / {validEdges.length} links</code>
+        <code>{renderedData.nodes.length} nodes / {validEdges.length} links</code>
       </div>
       <div className="graph-controls">
         <IconButton icon="zoomIn" label="Zoom in" onClick={() => graphRef.current?.zoom(1.35, 250)} />
         <IconButton icon="zoomOut" label="Zoom out" onClick={() => graphRef.current?.zoom(0.75, 250)} />
         <IconButton icon="fit" label="Fit graph" onClick={() => graphRef.current?.zoomToFit(350, 48)} />
       </div>
-      {!hasInteracted && nodes.length > 0 && (
+      {!hasInteracted && renderedData.nodes.length > 0 && (
         <div className="graph-hint">Select a node to synchronize the inspector · scroll to zoom</div>
       )}
       <ForceGraph2D
@@ -90,7 +157,6 @@ export const LiveTransactionGraph: React.FC<Props> = ({
           const transaction = transactionMap.get(node.id);
           if (transaction) onSelect(transaction);
         }}
-        onZoom={() => setHasInteracted(true)}
         linkColor={(link: any) =>
           link.source?.id === selectedId || link.target?.id === selectedId ? '#6aa7dc' : '#34434f'
         }

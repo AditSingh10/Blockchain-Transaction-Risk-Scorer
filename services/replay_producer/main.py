@@ -29,8 +29,15 @@ from shared.runtime import initialize_service
 log = structlog.get_logger()
 tracer = trace.get_tracer(__name__)
 produced_total = Counter("replay_producer_events_total", "Graph batches produced", ["outcome"])
+transactions_produced_total = Counter(
+    "replay_producer_transactions_total",
+    "Transactions carried by acknowledged graph batches",
+)
 current_time_step = Gauge("replay_producer_current_time_step", "Current replay time step")
-configured_rate = Gauge("replay_producer_events_per_second", "Configured replay rate")
+configured_rate = Gauge(
+    "replay_producer_events_per_second",
+    "Configured transaction replay rate",
+)
 source_to_kafka = Histogram(
     "replay_producer_source_to_kafka_seconds",
     "Time from event creation to Kafka acknowledgement",
@@ -73,6 +80,12 @@ class EllipticDataset:
             if int(row["txId1"]) != int(row["txId2"])
         ]
         return nodes, edges
+
+
+def pacing_delay_seconds(transaction_count: int, transactions_per_second: float) -> float:
+    """Return the delay that makes a graph batch honor a transaction-level rate."""
+
+    return transaction_count / transactions_per_second
 
 
 async def producer_checkpoint(
@@ -202,6 +215,7 @@ async def run() -> None:
                         source_offset=source_offset,
                     )
                     produced_total.labels("success").inc()
+                    transactions_produced_total.inc(len(nodes))
                     current_time_step.set(time_step)
                     source_to_kafka.observe(asyncio.get_running_loop().time() - started)
                     log.info(
@@ -214,7 +228,7 @@ async def run() -> None:
                 except Exception:
                     produced_total.labels("failure").inc()
                     raise
-            await asyncio.sleep(1 / rate)
+            await asyncio.sleep(pacing_delay_seconds(len(nodes), rate))
         if not stop.is_set():
             async with database.session() as session, session.begin():
                 await update_replay_control(

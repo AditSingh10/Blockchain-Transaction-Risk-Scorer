@@ -42,7 +42,11 @@ Collector, and Tempo:
 docker compose up --build
 ```
 
-The default image contains a 12-node deterministic Elliptic-shaped fixture. It
+The default image contains a 9,600-node deterministic Elliptic-shaped fixture:
+100 ordered timesteps with 96 transactions and 461 real, same-timestep edges
+per batch. At the default 20 transactions/second it provides about eight
+minutes of progressive visual replay. Its scaler-distribution feature samples
+make the unchanged model exercise clear, elevated, and high-risk states. It
 exercises the real checkpoint, Kafka, database, model, Redis, API, and frontend
 path; it is not presented as production data.
 
@@ -98,8 +102,16 @@ elliptic_bitcoin_dataset/
   elliptic_txs_classes.csv
 ```
 
-Replay progress and speed are persisted. A browser never advances the source
-iterator.
+Replay progress and speed are persisted. The configured rate is transactions
+per second even though Kafka preserves timestep-level graph batches. A browser
+never advances the source iterator. On a full page load the gateway provides a
+bounded recent replay and the client presents it at the selected rate, restoring
+the one-transaction-at-a-time investigation behavior without rerunning
+inference. The local Redis and browser limits are 10,000 events/nodes, so the
+entire 9,600-transaction bundled fixture remains available in the graph. Larger
+external datasets remain deliberately bounded and require a production
+level-of-detail or server-side graph-windowing policy rather than unbounded
+browser memory.
 
 ## Developer checks
 

@@ -13,7 +13,7 @@ Verified on 2026-07-23 PDT with:
 - Docker Compose with Kafka 7.7.1 in KRaft mode, PostgreSQL 16.6, Redis 7.4.1,
   two FastAPI gateways, and three GNN inference workers
 - six scoring-request partitions and six scoring-result partitions
-- deterministic 165-feature Elliptic-shaped fixture
+- deterministic 9,600-transaction, 165-feature Elliptic-shaped fixture
 - unchanged committed `gat-resnet-elliptic-v1` model and scaler
 
 The complete environment started with:
@@ -41,16 +41,41 @@ Observed result:
 ```json
 {
   "status": "verified",
-  "tx_id": "1010",
+  "tx_id": "1b4f2b5b-b",
   "model_version": "gat-resnet-elliptic-v1",
-  "redis_stream_length": 12,
-  "websocket_stream_id": "1784860515810-0"
+  "redis_stream_length": 9620,
+  "websocket_stream_id": "1784867148453-0"
 }
 ```
 
 This exercises the real graph-batch Kafka topic, graph materializer,
 transactional outbox, scoring-request topic, model worker, scoring-result
 topic, result projector, PostgreSQL, Redis Stream, FastAPI, and WebSocket path.
+
+## Progressive replay behavior
+
+The bundled replay now contains 100 graph batches of 96 transactions and 461
+same-timestep edges: 9,600 transactions and 46,100 unique directed edges. The
+first five observed batch-to-batch materialization intervals were 4.827, 4.847,
+4.866, and 4.833 seconds. That is approximately 19.8 transactions/second,
+including Kafka, database, and scheduling overhead, at the configured
+20-transactions/second source rate. The replay-rate control was exercised later
+in the same QA run, so the full-run wall time is intentionally not reported as
+a constant-rate measurement.
+
+After the replay, PostgreSQL contained 9,600 transactions and 9,600 canonical
+scores, while Redis retained all 9,600 scored events. The unchanged committed
+model produced probabilities from 0.000037 through 0.999070, with 101 distinct
+values when rounded to two decimal places.
+
+Playwright sampling of a fresh dashboard observed 0, 10, 20, ... 120 presented
+transactions at roughly 0.5-second intervals through 6.055 seconds, confirming
+the visible 20-transactions/second cadence. Pause/resume held the count at 56
+and then advanced it to 86 after 1.5 seconds. A fake-timer frontend regression
+test drains all 9,600 events and asserts that the table and graph retain
+9,600/9,600, preventing a return of the former 500-node cap. This preserves the
+durable, independently processed backend results while making graph population
+visible to the analyst.
 
 ## Failure and idempotency checks
 

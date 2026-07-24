@@ -1966,6 +1966,11 @@ input[type="range"]::-webkit-slider-thumb {
     box-shadow: -8px 0 20px rgba(0, 0, 0, 0.28);
   }
 
+  .monitor-workspace > .transaction-inspector.is-empty,
+  .review-workspace > .transaction-inspector.is-empty {
+    display: none;
+  }
+
   .review-workspace {
     grid-template-columns: 1fr;
   }

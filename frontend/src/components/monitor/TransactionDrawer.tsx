@@ -29,7 +29,7 @@ export const TransactionInspector: React.FC<Props> = ({
 
   if (!transaction) {
     return (
-      <aside className={`transaction-inspector ${className}`}>
+      <aside className={`transaction-inspector is-empty ${className}`}>
         <PanelHeader title="Transaction inspector" />
         <EmptyState
           icon="target"

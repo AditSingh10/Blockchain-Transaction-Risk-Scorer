@@ -33,6 +33,7 @@ from services.api_gateway.schemas import (
 from shared.config.settings import Settings
 from shared.database.queries import (
     fetch_graph_watermark,
+    fetch_replay_control,
     get_bounded_subgraph,
     get_transaction_entity,
     subgraph_cache_key,
@@ -352,6 +353,28 @@ async def send_message(
     events_sent.inc()
 
 
+async def replay_telemetry(settings: Settings) -> dict[str, str | float]:
+    try:
+        async with app.state.database.session() as session, session.begin():
+            status, events_per_second = await fetch_replay_control(
+                session,
+                stream_name=settings.stream_name,
+                default_rate=settings.replay_events_per_second,
+            )
+        return {
+            "replay_status": status,
+            "replay_events_per_second": events_per_second,
+        }
+    except Exception as exc:
+        errors_total.labels("replay_telemetry").inc()
+        log.warning(
+            "replay_telemetry_unavailable",
+            exception=type(exc).__name__,
+            error=sanitize_error(exc),
+        )
+        return {}
+
+
 async def websocket_sender(
     websocket: WebSocket,
     client: StreamClient,
@@ -373,12 +396,14 @@ async def websocket_sender(
             state["last_event_id"] = stream_id
             client.queue.task_done()
         except TimeoutError:
+            replay = await replay_telemetry(settings)
             await send_message(
                 websocket,
                 {
                     "type": "heartbeat",
                     "timestamp": int(time.time() * 1_000),
                     "last_event_id": state["last_event_id"],
+                    **replay,
                 },
                 settings,
             )
@@ -415,11 +440,20 @@ async def websocket_receiver(
                 )
         elif isinstance(message, ReplayStatusMessage):
             async with app.state.database.session() as session, session.begin():
-                await update_replay_control(
+                current_status, _ = await fetch_replay_control(
                     session,
                     stream_name=settings.stream_name,
-                    status="paused" if message.type == "pause_replay" else "running",
+                    default_rate=settings.replay_events_per_second,
                 )
+                # Completion is terminal for a replay run. A late browser
+                # control message must not advertise a resumed producer when
+                # the durable checkpoint is already at the end of the source.
+                if current_status != "completed":
+                    await update_replay_control(
+                        session,
+                        stream_name=settings.stream_name,
+                        status="paused" if message.type == "pause_replay" else "running",
+                    )
 
 
 async def websocket_handler(
@@ -437,6 +471,7 @@ async def websocket_handler(
         await websocket.close(code=1013, reason="gateway at capacity")
         return
     await websocket.accept()
+    replay_metadata = await replay_telemetry(settings)
     await send_message(
         websocket,
         {
@@ -444,6 +479,7 @@ async def websocket_handler(
             "gateway_instance": settings.instance_id,
             "heartbeat_seconds": settings.websocket_heartbeat_seconds,
             "last_event_id": last_event_id,
+            **replay_metadata,
         },
         settings,
     )
@@ -452,12 +488,12 @@ async def websocket_handler(
         "last_event_id": last_event_id,
     }
     try:
-        replay = (
+        replayed_events = (
             await broadcaster.replay_after(last_event_id)
             if last_event_id
             else await broadcaster.replay_recent()
         )
-        for stream_id, message in replay:
+        for stream_id, message in replayed_events:
             await send_message(
                 websocket,
                 personalize(message, state["threshold"]),

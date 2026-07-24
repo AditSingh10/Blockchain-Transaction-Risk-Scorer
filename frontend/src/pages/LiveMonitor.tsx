@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { LiveTransactionGraph } from '../components/monitor/LiveTransactionGraph';
 import { TransactionInspector } from '../components/monitor/TransactionDrawer';
 import { Icon } from '../components/ui/Icon';
@@ -28,6 +28,7 @@ const speedLabel = (interval: number) =>
 export const LiveMonitor: React.FC = () => {
   const {
     connected,
+    streamStatus,
     transactions,
     isPaused,
     setIsPaused,
@@ -35,6 +36,7 @@ export const LiveMonitor: React.FC = () => {
     setThreshold,
     streamSpeed,
     setStreamSpeed,
+    pendingCount,
     graphNodes,
     graphEdges,
   } = useWebSocketContext();
@@ -43,10 +45,14 @@ export const LiveMonitor: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('graph');
   const [sortKey, setSortKey] = useState<SortKey>('time');
   const [sortDescending, setSortDescending] = useState(true);
+  const hasAutoSelected = useRef(false);
 
   useEffect(() => {
-    if (!selectedTx && transactions.length > 0) setSelectedTx(transactions[0]);
-  }, [selectedTx, transactions]);
+    if (!hasAutoSelected.current && transactions.length > 0) {
+      hasAutoSelected.current = true;
+      setSelectedTx(transactions[0]);
+    }
+  }, [transactions]);
 
   const filtered = useMemo(() => {
     const next = transactions.filter(transaction =>
@@ -74,6 +80,24 @@ export const LiveMonitor: React.FC = () => {
 
   const highRiskCount = transactions.filter(tx => tx.illicit_probability >= threshold).length;
   const density = transactions.slice(0, 42).reverse();
+  const presentationRate = speedLabel(streamSpeed);
+  const replayComplete = streamStatus === 'completed' && pendingCount === 0;
+  const statusLabel = !connected
+    ? 'Backend disconnected'
+    : isPaused || streamStatus === 'paused'
+      ? `Stream paused · ${pendingCount} queued`
+      : pendingCount > 0
+        ? `Presenting ${presentationRate} · ${pendingCount} queued`
+        : streamStatus === 'completed'
+          ? `Replay complete · ${transactions.length} scored`
+          : 'Live inference';
+  const statusState: 'healthy' | 'warning' | 'critical' | 'neutral' = !connected
+    ? 'critical'
+    : isPaused || streamStatus === 'paused'
+      ? 'warning'
+      : streamStatus === 'completed' && pendingCount === 0
+        ? 'neutral'
+        : 'healthy';
 
   return (
     <div className="page page-live-monitor">
@@ -82,8 +106,8 @@ export const LiveMonitor: React.FC = () => {
           <div className="heading-line">
             <h1>Live Monitor</h1>
             <StatusIndicator
-              state={connected ? (isPaused ? 'warning' : 'healthy') : 'critical'}
-              label={connected ? (isPaused ? 'Stream paused' : 'Live inference') : 'Backend disconnected'}
+              state={statusState}
+              label={statusLabel}
               compact
             />
           </div>
@@ -140,9 +164,10 @@ export const LiveMonitor: React.FC = () => {
           <button
             className={`button stream-control${isPaused ? ' is-paused' : ''}`}
             onClick={() => setIsPaused(!isPaused)}
+            disabled={replayComplete}
           >
             <Icon name={isPaused ? 'play' : 'pause'} size={14} />
-            {isPaused ? 'Resume' : 'Pause'}
+            {replayComplete ? 'Complete' : isPaused ? 'Resume' : 'Pause'}
           </button>
         </Toolbar>
       </header>
@@ -151,7 +176,7 @@ export const LiveMonitor: React.FC = () => {
         <Panel className="stream-rail">
           <PanelHeader
             title="Incoming stream"
-            meta={`${transactions.length} buffered`}
+            meta={`${transactions.length} shown · ${pendingCount} queued`}
           />
           <div className="stream-rail-summary">
             <span><strong>{highRiskCount}</strong> above threshold</span>
@@ -262,7 +287,7 @@ export const LiveMonitor: React.FC = () => {
             <div className="timeline-bars">
               {density.map(transaction => (
                 <button
-                  key={`${transaction.tx_id}-timeline`}
+                  key={`${transaction.tx_id}-${transaction.timestamp}-timeline`}
                   title={`${formatTime(transaction.timestamp)} · ${formatPercent(transaction.illicit_probability, 1)} risk`}
                   className={`${transaction.illicit_probability >= threshold ? 'is-high' : ''}${transaction.tx_id === selectedTx?.tx_id ? ' is-selected' : ''}`}
                   style={{ height: `${Math.max(16, transaction.illicit_probability * 100)}%` }}

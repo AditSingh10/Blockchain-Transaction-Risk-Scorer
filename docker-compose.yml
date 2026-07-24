@@ -6,10 +6,12 @@ x-app-environment: &app-environment
   RISK_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
   RISK_POSTGRES_DSN: postgresql+asyncpg://risk:risk@postgres:5432/risk
   RISK_REDIS_URL: redis://redis:6379/0
+  RISK_REDIS_STREAM_MAXLEN: "10000"
+  RISK_REDIS_REPLAY_LIMIT: "10000"
   RISK_MODEL_PATH: /app/models/gat_resnet_elliptic.pt
   RISK_SCALER_PATH: /app/models/scaler.pkl
   RISK_ELLIPTIC_DATA_DIR: /opt/risk-fixture
-  RISK_REPLAY_EVENTS_PER_SECOND: "10"
+  RISK_REPLAY_EVENTS_PER_SECOND: "20"
   RISK_KAFKA_POLL_TIMEOUT_MS: "100"
   RISK_OUTBOX_POLL_INTERVAL_MS: "25"
   RISK_METRICS_PORT: "9100"
