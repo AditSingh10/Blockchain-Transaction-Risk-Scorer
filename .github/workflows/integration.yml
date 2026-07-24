@@ -23,7 +23,7 @@ jobs:
       - name: Verify end-to-end pipeline
         run: >-
           docker compose run --rm -T test-runner
-          python scripts/verify_pipeline.py
+          python -m scripts.verify_pipeline
           --api-url http://gateway-lb:8080
           --websocket-url ws://gateway-lb:8080/api/v1/ws
       - name: Run integration invariants
@@ -32,7 +32,7 @@ jobs:
         id: probe
         shell: bash
         run: |
-          probe_json=$(docker compose run --rm -T --no-deps test-runner python scripts/failure_probe.py issue | tail -1)
+          probe_json=$(docker compose run --rm -T --no-deps test-runner python -m scripts.failure_probe issue | tail -1)
           result_id=$(python -c 'import json,sys; print(json.loads(sys.argv[1])["result_event_id"])' "$probe_json")
           echo "result_id=$result_id" >> "$GITHUB_OUTPUT"
           docker compose kill inference-worker
@@ -40,17 +40,17 @@ jobs:
       - name: Verify recovery after crash
         run: >-
           docker compose run --rm -T --no-deps test-runner
-          python scripts/failure_probe.py verify
+          python -m scripts.failure_probe verify
           --result-event-id "${{ steps.probe.outputs.result_id }}"
       - name: Record benchmark
         run: >-
           docker compose run --rm -T --no-deps test-runner
-          python scripts/benchmark.py
+          python -m scripts.benchmark
           --postgres-dsn postgresql+asyncpg://risk:risk@postgres:5432/risk
           --redis-url redis://redis:6379/0
           --websocket-url ws://gateway-lb:8080/api/v1/ws
           --worker-count 3
-          --websocket-duration 3
+          --require-target
           > benchmark.json
       - uses: actions/upload-artifact@v4
         with:

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     kafka_sasl_username: str | None = None
     kafka_sasl_password: str | None = None
     kafka_request_timeout_ms: int = Field(default=30_000, ge=1_000, le=120_000)
-    kafka_poll_timeout_ms: int = Field(default=1_000, ge=100, le=30_000)
+    kafka_poll_timeout_ms: int = Field(default=100, ge=25, le=30_000)
     kafka_max_poll_records: int = Field(default=64, ge=1, le=1_000)
     kafka_max_message_bytes: int = Field(
         default=64 * 1024 * 1024,
@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     retry_base_delay_ms: int = Field(default=100, ge=10, le=60_000)
     retry_max_delay_ms: int = Field(default=5_000, ge=100, le=300_000)
     outbox_batch_size: int = Field(default=100, ge=1, le=1_000)
+    outbox_poll_interval_ms: int = Field(default=25, ge=5, le=5_000)
 
     graph_max_hops: int = Field(default=2, ge=1, le=4)
     graph_max_nodes: int = Field(default=100, ge=1, le=5_000)

@@ -294,7 +294,9 @@ semantics-preserving batch adapter before enabling batch/wait tuning. Raise
 partitions during a controlled topic-version migration, and consider
 feature-column or graph-storage changes only after query evidence.
 
-The benchmark records actual values or `null`; it never substitutes targets.
-The résumé latency statement is defensible only for a recorded run whose
-reported p95 ingest-to-Redis result is below 270 ms and whose live
-Redis-to-WebSocket sample is also stated.
+The benchmark creates an isolated set of versioned graph events and records
+actual values or `null`; it never substitutes targets. The résumé latency
+statement is defensible only for a complete recorded run whose p95
+event-creation-to-live-WebSocket latency is below 270 ms. See
+[verification.md](verification.md) for the latest measured run, the separate
+overload comparison, and the hardware/load boundary of those results.

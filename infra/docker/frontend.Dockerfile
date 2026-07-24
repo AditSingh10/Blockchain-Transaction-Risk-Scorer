@@ -13,5 +13,9 @@ RUN npm run build
 FROM nginx:1.27.3-alpine3.20
 COPY infra/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/build /usr/share/nginx/html
+RUN mkdir -p /var/cache/nginx/client_temp \
+    && touch /var/run/nginx.pid \
+    && chown -R nginx:nginx /var/cache/nginx /var/log/nginx /usr/share/nginx/html \
+    && chown nginx:nginx /var/run/nginx.pid
 EXPOSE 8080
 USER nginx

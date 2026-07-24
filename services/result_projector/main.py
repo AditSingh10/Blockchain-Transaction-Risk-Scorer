@@ -259,9 +259,9 @@ async def publish_redis_outbox(
                         OutboxEvent.published_at.is_(None),
                     )
                 )
-                redis_backlog.set(int(count or 0))
+            redis_backlog.set(int(count or 0))
             if not rows:
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(settings.outbox_poll_interval_ms / 1_000)
             consecutive_failures = 0
         except Exception as exc:
             consecutive_failures += 1
@@ -330,7 +330,7 @@ async def run() -> None:
         await asyncio.gather(consumer_task, redis_task, return_exceptions=True)
         await consumer.stop()
         await dlq_producer.stop()
-        await redis.close()
+        await redis.aclose()  # type: ignore[attr-defined]
         await database.dispose()
 
 

@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import time
+from urllib.error import URLError
 from urllib.request import urlopen
 
 import asyncpg
@@ -47,9 +48,20 @@ async def verify(args: argparse.Namespace) -> None:
         if await redis_client.xlen(args.stream_key) == 0:
             raise RuntimeError("no result reached the Redis Stream")
 
-        health = await asyncio.to_thread(read_json, f"{args.api_url}/health/ready")
-        if health.get("status") != "ready":
-            raise RuntimeError(f"gateway not ready: {health}")
+        health = None
+        while time.monotonic() < deadline:
+            try:
+                health = await asyncio.to_thread(
+                    read_json,
+                    f"{args.api_url}/health/ready",
+                )
+            except (OSError, TimeoutError, URLError):
+                health = None
+            if health and health.get("status") == "ready":
+                break
+            await asyncio.sleep(0.5)
+        if not health or health.get("status") != "ready":
+            raise RuntimeError(f"gateway did not become ready: {health}")
         entity = await asyncio.to_thread(
             read_json,
             f"{args.api_url}/api/v1/entity/{row['tx_id']}",
@@ -78,7 +90,7 @@ async def verify(args: argparse.Namespace) -> None:
             )
         )
     finally:
-        await redis_client.close()
+        await redis_client.aclose()  # type: ignore[attr-defined]
         await pool.close()
 
 

@@ -10,6 +10,8 @@ x-app-environment: &app-environment
   RISK_SCALER_PATH: /app/models/scaler.pkl
   RISK_ELLIPTIC_DATA_DIR: /opt/risk-fixture
   RISK_REPLAY_EVENTS_PER_SECOND: "10"
+  RISK_KAFKA_POLL_TIMEOUT_MS: "100"
+  RISK_OUTBOX_POLL_INTERVAL_MS: "25"
   RISK_METRICS_PORT: "9100"
   RISK_OTEL_EXPORTER_ENDPOINT: http://otel-collector:4318/v1/traces
   RISK_CORS_ORIGINS: '["http://localhost:3000"]'
@@ -113,7 +115,7 @@ services:
 
   topic-bootstrap:
     <<: *app
-    command: ["python", "scripts/bootstrap_topics.py"]
+    command: ["python", "-m", "scripts.bootstrap_topics"]
     restart: "no"
     depends_on:
       kafka:
@@ -189,7 +191,7 @@ services:
     ports:
       - "8000:8080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/health/live"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/health/live"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -227,7 +229,7 @@ services:
     ports:
       - "3000:8080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8080/healthz"]
       interval: 5s
       timeout: 3s
       retries: 30

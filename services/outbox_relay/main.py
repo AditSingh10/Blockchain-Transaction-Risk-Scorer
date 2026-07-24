@@ -123,7 +123,7 @@ async def run() -> None:
                 attempt = 0
                 await update_backlog(database)
                 if published == 0:
-                    await asyncio.sleep(0.2)
+                    await asyncio.sleep(settings.outbox_poll_interval_ms / 1_000)
             except Exception as exc:
                 failures_total.inc()
                 retry_total.inc()

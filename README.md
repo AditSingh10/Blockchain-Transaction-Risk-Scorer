@@ -59,7 +59,7 @@ and a cursor-replay WebSocket publishes it:
 
 ```bash
 docker compose run --rm -T test-runner \
-  python scripts/verify_pipeline.py \
+  python -m scripts.verify_pipeline \
   --api-url http://gateway-lb:8080 \
   --websocket-url ws://gateway-lb:8080/api/v1/ws
 ```
@@ -143,7 +143,7 @@ that immutable snapshot is the breaking-change guard.
 
 ## Failure and performance verification
 
-`scripts/failure_probe.py` issues an accepted Kafka request that can be checked
+`python -m scripts.failure_probe` issues an accepted Kafka request that can be checked
 after inference workers are killed and restarted. The distributed GitHub
 Actions workflow automates this window and verifies the resulting canonical
 score.
@@ -152,8 +152,9 @@ The benchmark reports real measurements or `null`, never target-shaped
 estimates:
 
 ```bash
-python scripts/benchmark.py \
+python -m scripts.benchmark \
   --worker-count 3 \
+  --require-target \
   --output benchmark.json
 ```
 
@@ -162,6 +163,10 @@ inference, result persistence, Redis publication, ingest-to-Redis, and live
 Redis-to-WebSocket latency. The sub-270 ms claim is supported only by a run
 whose recorded p95 meets the target; weighted F1 remains an offline model
 quality metric, not an infrastructure latency metric.
+
+The latest local verification, including the failure windows and measured
+latency/scaling results, is recorded in
+[verification.md](docs/verification.md).
 
 ## API
 

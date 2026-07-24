@@ -2,6 +2,7 @@ FROM python:3.11.11-slim-bookworm AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
@@ -14,7 +15,7 @@ RUN pip install --upgrade pip==24.3.1 \
     && pip install -r requirements.txt
 
 COPY . .
-RUN python scripts/generate_fixture.py --output /opt/risk-fixture \
+RUN python -m scripts.generate_fixture --output /opt/risk-fixture \
     && chown -R risk:risk /app /opt/risk-fixture
 
 FROM base AS test
