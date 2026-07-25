@@ -17,6 +17,83 @@ Elliptic replay → Kafka graph batches → graph materializer → PostgreSQL + 
     → result projector → PostgreSQL + Redis Stream → FastAPI → React
 ```
 
+### Analyst serving path
+
+```mermaid
+flowchart TB
+    U["USERS / ANALYSTS"]
+    UI["REACT DASHBOARD"]
+    LB["LOAD BALANCER"]
+    A1["FASTAPI GATEWAY 1"]
+    A2["FASTAPI GATEWAY 2"]
+    S["SHARED DATA LAYER"]
+    R["REDIS STREAMS<br/>live events and reconnect replay"]
+    DB[("POSTGRESQL<br/>transactions, graph, scores")]
+
+    U --> UI
+    UI --> LB
+    LB --> A1
+    LB --> A2
+    A1 --> S
+    A2 --> S
+    S --> DB
+    S --> R
+
+    classDef primary fill:#1473c9,color:#fff,stroke:#0c5da8,stroke-width:1px;
+    classDef secondary fill:#e9eef3,color:#17212b,stroke:#c8d1da,stroke-width:1px;
+    classDef storage fill:#dce8f5,color:#17212b,stroke:#1473c9,stroke-width:1px;
+    class U,UI,S secondary;
+    class LB,A1,A2 primary;
+    class R,DB storage;
+```
+
+The load balancer may send any REST request or WebSocket connection to any
+gateway. Gateways are stateless: PostgreSQL is the source of truth, and Redis
+holds only bounded real-time history.
+
+### Transaction scoring path
+
+```mermaid
+flowchart TB
+    E["ELLIPTIC REPLAY PRODUCER"]
+    K1["KAFKA<br/>graph batches"]
+    M["GRAPH MATERIALIZER"]
+    PG1[("POSTGRESQL<br/>graph + transactional outbox")]
+    O["OUTBOX RELAY"]
+    K2["KAFKA<br/>scoring requests"]
+    W["INFERENCE WORKERS<br/>1 ... N"]
+    K3["KAFKA<br/>scoring results"]
+    P["RESULT PROJECTOR"]
+    PG2[("POSTGRESQL<br/>canonical scores")]
+    RS["REDIS STREAM<br/>bounded live replay"]
+    API["FASTAPI GATEWAYS"]
+    DASH["REACT DASHBOARD"]
+
+    E --> K1
+    K1 --> M
+    M --> PG1
+    PG1 --> O
+    O --> K2
+    K2 --> W
+    W --> K3
+    K3 --> P
+    P --> PG2
+    P --> RS
+    PG2 --> API
+    RS --> API
+    API --> DASH
+
+    classDef primary fill:#1473c9,color:#fff,stroke:#0c5da8,stroke-width:1px;
+    classDef secondary fill:#e9eef3,color:#17212b,stroke:#c8d1da,stroke-width:1px;
+    classDef storage fill:#dce8f5,color:#17212b,stroke:#1473c9,stroke-width:1px;
+    class E,DASH secondary;
+    class M,O,W,P,API primary;
+    class K1,K2,K3,PG1,PG2,RS storage;
+```
+
+Kafka is part of the real processing path. A browser does not advance the
+dataset and a FastAPI process does not run inference.
+
 Delivery is at least once. Stable event IDs, consumer inboxes, database
 uniqueness, conditional upserts, deterministic results, and a transactional
 outbox make redelivery harmless. The implementation does not claim exactly-once
